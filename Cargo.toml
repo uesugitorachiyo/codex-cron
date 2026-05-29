@@ -17,6 +17,7 @@ croner = "2"
 thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+toml = "0.8"
 fs2 = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 codex-cron-core = { path = "crates/codex-cron-core" }
