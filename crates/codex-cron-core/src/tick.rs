@@ -74,7 +74,9 @@ pub enum RunStatus {
 }
 
 impl RunStatus {
-    fn as_str(self) -> &'static str {
+    /// A stable lowercase label (`"success"`, `"failed"`, `"silent"`,
+    /// `"refused"`) used in `last_status` and delivery payloads.
+    pub fn as_str(self) -> &'static str {
         match self {
             RunStatus::Success => "success",
             RunStatus::Failed => "failed",
