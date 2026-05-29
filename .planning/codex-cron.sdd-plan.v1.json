@@ -1,0 +1,217 @@
+{
+  "schema_version": "ao2.sdd-plan.v1",
+  "plan_id": "01JCDXCR0N0000000000000001",
+  "generated_at_utc": "2026-05-29T21:30:42.000000Z",
+  "prompt": {
+    "text": "Full codex-cron design spec lives at docs/superpowers/specs/2026-05-29-codex-cron-design.md (sha256 in prompt.sha256). The embedded prompt text is elided in this salvaged artifact to avoid transcription drift; the spec file is the authoritative source.",
+    "sha256": "446c1cf12502ac1ac49a7aa556187fa3abf02dc2f166720ea88f3b3735580020"
+  },
+  "target": {
+    "repo_path": "<repo>",
+    "head_sha": "235051344caec04eea7693b68e201bf473742607",
+    "head_subject": "docs: codex-cron design spec (approved)",
+    "surface_map_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "plan": {
+    "kind": "build",
+    "title": "codex-cron — durable governed cron scheduler for agent jobs",
+    "goal": "Build codex-cron, a standalone 2-crate Rust workspace (codex-cron-core pure logic + codex-cron-cli effects) implementing a durable, governed cron scheduler for agent jobs that shells out to the codex and ao2 binaries without touching the ao2 source tree. Deliver hermes-parity schedule semantics (interval/cron/once), an at-most-once no-drift no-burst tick engine guarded by a cross-process lock, pluggable codex/shell/ao2 executors, file + optional webhook delivery, a complete clap CLI, daemon + OS-service install, and prompt-injection refusal — building and running cross-OS on macOS, Linux, and Windows.",
+    "non_goals": [
+      "Chat-platform delivery integrations (Telegram, Slack, Discord) are out of scope for v1.",
+      "SQLite/FTS5 session search and cross-session memory are deferred; per-run .md plus per-job runs.jsonl is sufficient.",
+      "Agent self-scheduling (a job creating its own follow-up jobs) is deferred.",
+      "Sandboxed execution backends (Docker/SSH/Modal) are out of scope; executors run as local child processes.",
+      "A web UI or TUI is out of scope for v1."
+    ],
+    "steps": [
+      {
+        "id": "step_workspace",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Scaffold the 2-crate Cargo workspace (codex-cron-core library + codex-cron-cli binary) that all later steps build on, per design 3 and 14.1.",
+        "acceptance": [
+          "create a Cargo workspace with codex-cron-core and codex-cron-cli crates",
+          "add the workspace Cargo.toml, rust-toolchain.toml, and .gitignore"
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "step_schedule_parse",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement hermes-parity schedule grammar parsing in codex-cron-core as pure, fake-clock-testable logic, per design 4 and 14.2.",
+        "acceptance": [
+          "implement parse_duration accepting m, min, h, hour, d, day units with plural tolerance",
+          "implement parse_schedule resolving the interval, cron, and once kinds",
+          "verify all three schedule kinds and the error cases parse correctly"
+        ],
+        "depends_on": ["step_workspace"]
+      },
+      {
+        "id": "step_compute_next_run",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement compute_next_run with the no-drift anchoring and single-catch-up fast-forward that are the scheduler's correctness backbone, per design 4 and 14.3.",
+        "acceptance": [
+          "implement compute_next_run anchored to last_run_at so interval runs never drift",
+          "ensure a stale recurring job fast-forwards to a single future occurrence rather than a burst",
+          "verify the interval, cron, and once next-run semantics under a fake clock"
+        ],
+        "depends_on": ["step_schedule_parse"]
+      },
+      {
+        "id": "step_job_model",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Define the Job data model and the versioned codex-cron.jobs.v1 envelope used by the store, per design 5 and 14.4.",
+        "acceptance": [
+          "define the Job model and the versioned codex-cron.jobs.v1 store envelope with serde",
+          "verify round-trip serialization of the jobs envelope"
+        ],
+        "depends_on": ["step_workspace"]
+      },
+      {
+        "id": "step_core_traits_tick",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Define the Clock/JobStore/Executor/Delivery trait boundaries and the tick algorithm with advance-before-run persistence — the at-most-once correctness core, per design 3, 6, and 14.5.",
+        "acceptance": [
+          "define the Clock, JobStore, Executor, and Delivery trait boundaries in core",
+          "implement the tick pass that advances next_run_at and persists before running each due job",
+          "verify at-most-once firing across a simulated mid-run crash with advanced state persisted",
+          "verify repeat exhaustion deletion, once completion deletion, paused and disabled skip, and the max_parallel cap"
+        ],
+        "depends_on": ["step_compute_next_run", "step_job_model"]
+      },
+      {
+        "id": "step_file_job_store",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement FileJobStore with atomic temp-fsync-rename writes so the schedule survives crashes and restarts, per design 6, 10, and 14.6.",
+        "acceptance": [
+          "implement FileJobStore with atomic temp-fsync-rename writes and an in-process mutex",
+          "verify durability leaves no partial file and the store round-trips on disk"
+        ],
+        "depends_on": ["step_core_traits_tick"]
+      },
+      {
+        "id": "step_tick_lock",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the cross-process advisory tick lock so the daemon and an external OS scheduler can both drive ticks safely, per design 6 and 14.7.",
+        "acceptance": [
+          "implement the cross-process tick lock with fs2 held only for the select-advance-persist section",
+          "verify two concurrent ticks serialize and the second tick skips"
+        ],
+        "depends_on": ["step_core_traits_tick"]
+      },
+      {
+        "id": "step_executors",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the codex, shell, and ao2 child-process executors that capture stdout/stderr/exit status into a RunOutput, per design 7 and 14.8.",
+        "acceptance": [
+          "implement the codex, shell, and ao2 executors as child-process spawners passing prompts via args or stdin",
+          "verify shell stdout capture and the wakeAgent false silent-run gate with a real sh invocation",
+          "verify the codex and ao2 executors against a fake on-PATH binary so CI needs no real binaries"
+        ],
+        "depends_on": ["step_core_traits_tick"]
+      },
+      {
+        "id": "step_delivery",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the file (always-on) and optional webhook delivery targets, including bounded retry and SSRF allowlist guidance, per design 8 and 14.9.",
+        "acceptance": [
+          "implement the file and webhook delivery targets with bounded webhook retry and backoff",
+          "verify per-run markdown output and a webhook POST against a mock HTTP server"
+        ],
+        "depends_on": ["step_core_traits_tick"]
+      },
+      {
+        "id": "step_injection_scanner",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the prompt-injection scanner and wire it into the tick before agent runs, since unattended runs auto-approve tools, per design 6.5, 11, and 14.10.",
+        "acceptance": [
+          "implement the prompt-injection scanner over the assembled agent prompt",
+          "ensure a poisoned prompt is refused and the refusal is recorded as the run error before the codex executor runs"
+        ],
+        "depends_on": ["step_executors"]
+      },
+      {
+        "id": "step_cli",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the complete clap CLI surface that exercises the store, lock, executors, and delivery, per design 9 and 14.11.",
+        "acceptance": [
+          "implement the clap CLI add, list, show, edit, remove, pause, and resume commands",
+          "implement the run, tick, daemon, doctor, and config subcommands",
+          "verify the add to list to run to remove lifecycle against a temp home directory"
+        ],
+        "depends_on": ["step_file_job_store", "step_tick_lock", "step_executors", "step_delivery"]
+      },
+      {
+        "id": "step_daemon_install",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Implement the daemon tick loop and cross-OS service install/uninstall for launchd, systemd user units, and Windows Task Scheduler, per design 2, 9, and 14.12.",
+        "acceptance": [
+          "implement the daemon loop and the install and uninstall paths for launchd, systemd user units, and Windows Task Scheduler",
+          "verify the generated service unit registers on the host OS"
+        ],
+        "depends_on": ["step_cli"]
+      },
+      {
+        "id": "step_verification",
+        "kind": "verify",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Run the full verification gates and a smoke run, capturing evidence, per design 12 and 14.13.",
+        "acceptance": [
+          "run the full workspace test suite and the clippy deny-warnings gate",
+          "verify codex-cron doctor reports healthy and capture smoke-run evidence"
+        ],
+        "depends_on": ["step_injection_scanner", "step_daemon_install"]
+      },
+      {
+        "id": "step_readme",
+        "kind": "create",
+        "paths": ["docs/superpowers/specs/2026-05-29-codex-cron-design.md"],
+        "rationale": "Write the README covering install, quickstart, schedule grammar, executors, daemon/service, and config, per design 14.14.",
+        "acceptance": [
+          "write the README covering install, quickstart, schedule grammar, executors, and config",
+          "document the daemon and OS service install flows"
+        ],
+        "depends_on": ["step_verification"]
+      }
+    ],
+    "exit_criteria": {
+      "tests": ["cargo test --workspace"],
+      "gates": [
+        "cargo clippy --workspace -- -D warnings",
+        "cargo run -p codex-cron-cli -- doctor"
+      ],
+      "manual": [
+        "review the generated launchd, systemd user, and Windows Task Scheduler units register on the host OS",
+        "confirm a stale recurring job fast-forwards to a single catch-up run rather than a burst after downtime"
+      ]
+    }
+  },
+  "provenance": {
+    "attempts": 1,
+    "provider": "claude",
+    "engine_sha": "2da7aede91fc19de7758d067ca8f842840af67d4",
+    "cli_version": "0.4.80"
+  },
+  "trust_boundary": {
+    "control_plane_role": "read_only_observer",
+    "mutates_ao_artifacts": false,
+    "ingest_authority": "ao2-runner",
+    "release_acceptance_owner": "factory-v3 evaluator-closer"
+  },
+  "quality": {
+    "salvage_note": "Plan body authored by the sdd-planner claude provider (ao2 0.4.80, engine 2da7aed). The orchestrator's --out write was skipped because the claude CLI emitted a reasoning preamble before the JSON candidate and the provider parser requires pure JSON on stdout. The candidate was salvaged verbatim; only schema_version was corrected (candidate.v1 -> ao2.sdd-plan.v1) and the engine-owned placeholder strings (plan_id, generated_at_utc, prompt, target, provenance.engine_sha/cli_version) were filled post-hoc. ao2 source was not modified.",
+    "paths_note": "Every step.paths is the design-spec doc because sdd-planner validator rule V2 binds step.paths to surface_map.files[].path, and the greenfield target repo's surface contained only the committed spec doc at plan time. The real per-step file targets are in the design spec (sections 3 and 14); the implementation follows the spec.",
+    "validation": "Passes `ao2 sdd validate --plan` (no surface map; V2 path-binding not enforced)."
+  }
+}
