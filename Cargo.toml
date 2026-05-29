@@ -1,0 +1,28 @@
+[workspace]
+members = ["crates/codex-cron-core", "crates/codex-cron-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.83.0"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+repository = "https://github.com/harufumi/codex-cron"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+croner = "2"
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fs2 = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+codex-cron-core = { path = "crates/codex-cron-core" }
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+strip = true

@@ -1,0 +1,28 @@
+[package]
+name = "codex-cron-cli"
+description = "codex-cron CLI and daemon: durable, governed cron scheduler driving codex / shell / ao2 executors."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "codex-cron"
+path = "src/main.rs"
+
+[dependencies]
+codex-cron-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+clap.workspace = true
+fs2.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+assert_cmd.workspace = true
+predicates.workspace = true
