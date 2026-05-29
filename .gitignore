@@ -1,0 +1,14 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# sdd-planner build logs written into the target repo
+/target/sdd-planner
+
+# Local runtime home (if someone points CODEX_CRON_HOME at the repo)
+/.codex-cron
+
+# OS / editor
+.DS_Store
+*.swp
