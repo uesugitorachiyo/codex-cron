@@ -103,11 +103,15 @@ pub struct RunOutput {
 pub struct TickConfig {
     /// Maximum jobs run concurrently (`1` = serial). `0` is treated as `1`.
     pub max_parallel: usize,
+    pub target_job_ids: Option<HashSet<String>>,
 }
 
 impl Default for TickConfig {
     fn default() -> Self {
-        TickConfig { max_parallel: 1 }
+        TickConfig {
+            max_parallel: 1,
+            target_job_ids: None,
+        }
     }
 }
 
@@ -179,7 +183,14 @@ pub fn tick(
     let due_idx: Vec<usize> = jobs
         .iter()
         .enumerate()
-        .filter(|(_, j)| j.enabled && j.next_run_at.is_some_and(|t| t <= now))
+        .filter(|(_, j)| {
+            j.enabled
+                && j.next_run_at.is_some_and(|t| t <= now)
+                && match &cfg.target_job_ids {
+                    Some(ids) => ids.contains(&j.id),
+                    None => true,
+                }
+        })
         .map(|(i, _)| i)
         .collect();
 
@@ -527,7 +538,10 @@ mod tests {
     }
 
     fn cfg(max_parallel: usize) -> TickConfig {
-        TickConfig { max_parallel }
+        TickConfig {
+            max_parallel,
+            target_job_ids: None,
+        }
     }
 
     // ---- tests ----
@@ -865,5 +879,28 @@ mod tests {
 
         assert_eq!(ran.lock().unwrap().len(), 1);
         assert_eq!(store.snapshot()[0].state, JobState::Scheduled);
+    }
+
+    #[test]
+    fn tick_with_target_job_ids_only_fires_matching_due_job() {
+        let now = at(2026, 6, 1, 10, 0);
+        let mut a = job("a", Schedule::Interval { minutes: 60 }, ExecutorKind::Shell, now);
+        let mut b = job("b", Schedule::Interval { minutes: 60 }, ExecutorKind::Shell, now);
+        a.next_run_at = Some(now);
+        b.next_run_at = Some(now);
+        let store = MemStore::new(vec![a, b]);
+        let (exec, ran) = Recorder::new(ExecutorKind::Shell, RunStatus::Success);
+        let cfg = TickConfig {
+            max_parallel: 1,
+            target_job_ids: Some(["a".to_string()].into_iter().collect()),
+        };
+
+        let report = tick(&FixedClock(now), &store, &[&exec], &[], &NoScan, &cfg).unwrap();
+
+        assert_eq!(report.fired.len(), 1);
+        assert_eq!(report.fired[0].id, "a");
+        assert_eq!(*ran.lock().unwrap(), vec!["a".to_string()]);
+        let loaded = store.snapshot();
+        assert_eq!(loaded.iter().find(|j| j.id == "b").unwrap().last_status, None);
     }
 }

@@ -204,6 +204,46 @@ pub fn run_one_tick(home: &Path) -> Result<TickReport> {
     let scanner = DefaultScanner;
     let tick_cfg = TickConfig {
         max_parallel: cfg.effective_max_parallel(),
+        target_job_ids: None,
+    };
+
+    match try_acquire_tick_lock(home).context("acquiring tick lock")? {
+        None => {
+            println!("another tick is in progress; skipping");
+            Ok(TickReport::default())
+        }
+        Some(_lock) => {
+            let report = tick(
+                &clock,
+                &store,
+                &executors,
+                &deliveries,
+                &scanner,
+                &tick_cfg,
+            )?;
+            Ok(report)
+        }
+    }
+}
+
+pub fn run_target_tick(home: &Path, id: &str) -> Result<TickReport> {
+    let cfg = Config::load(home)?;
+    let store = FileJobStore::new(home);
+    let clock = SystemClock;
+
+    let codex = CodexExecutor::new(cfg.codex_path.clone(), home);
+    let shell = ShellExecutor;
+    let ao2 = Ao2Executor::new(cfg.ao2_path.clone());
+    let executors: [&dyn Executor; 3] = [&codex, &shell, &ao2];
+
+    let file_delivery = FileDelivery::new(home);
+    let webhook_delivery = WebhookDelivery::new(cfg.webhook_allowlist.clone());
+    let deliveries: [&dyn Delivery; 2] = [&file_delivery, &webhook_delivery];
+
+    let scanner = DefaultScanner;
+    let tick_cfg = TickConfig {
+        max_parallel: 1,
+        target_job_ids: Some([id.to_string()].into_iter().collect()),
     };
 
     match try_acquire_tick_lock(home).context("acquiring tick lock")? {
@@ -429,7 +469,7 @@ fn cmd_run(home: &Path, id: &str) -> Result<()> {
     }
     store.save(&jobs)?;
 
-    let report = run_one_tick(home)?;
+    let report = run_target_tick(home, id)?;
     if let Some(f) = report.fired.iter().find(|f| f.id == id) {
         println!("ran job {id}: {}", f.status.as_str());
     } else {
