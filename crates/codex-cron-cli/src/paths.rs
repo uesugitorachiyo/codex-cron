@@ -88,7 +88,10 @@ mod tests {
     fn builds_expected_child_paths() {
         let home = PathBuf::from("/h/.codex-cron");
         assert_eq!(jobs_file(&home), PathBuf::from("/h/.codex-cron/jobs.json"));
-        assert_eq!(config_file(&home), PathBuf::from("/h/.codex-cron/config.toml"));
+        assert_eq!(
+            config_file(&home),
+            PathBuf::from("/h/.codex-cron/config.toml")
+        );
         assert_eq!(lock_file(&home), PathBuf::from("/h/.codex-cron/.tick.lock"));
         assert_eq!(
             run_md(&home, "abc123", "2026-06-01T10-00-00Z"),

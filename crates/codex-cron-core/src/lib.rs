@@ -24,8 +24,8 @@ pub use event_loop::{
     EVENT_LOOP_DECISION_SCHEMA,
 };
 pub use job::{
-    jobs_to_json, parse_jobs, DeliveryTarget, ExecutorKind, Job, JobError, JobState, NewJob, Repeat,
-    JOBS_SCHEMA_VERSION,
+    jobs_to_json, parse_jobs, DeliveryTarget, ExecutorKind, Job, JobError, JobState, NewJob,
+    Repeat, JOBS_SCHEMA_VERSION,
 };
 pub use schedule::{compute_next_run, parse_duration, parse_schedule, Schedule, ScheduleError};
 pub use tick::{

@@ -37,7 +37,11 @@ pub fn default_max_runtime_seconds() -> u64 {
 }
 
 pub fn parse_event_loop_decision(text: &str) -> EventLoopDecision {
-    for line in text.lines().map(str::trim).filter(|line| line.starts_with('{')) {
+    for line in text
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with('{'))
+    {
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
         let Ok(value) = parsed else {
             if line.contains(EVENT_LOOP_DECISION_SCHEMA) {
@@ -49,7 +53,9 @@ pub fn parse_event_loop_decision(text: &str) -> EventLoopDecision {
             }
             continue;
         };
-        if value.get("schema_version").and_then(serde_json::Value::as_str)
+        if value
+            .get("schema_version")
+            .and_then(serde_json::Value::as_str)
             != Some(EVENT_LOOP_DECISION_SCHEMA)
         {
             continue;
@@ -97,7 +103,10 @@ tail"#;
         let decision = parse_event_loop_decision("ordinary command output");
 
         assert_eq!(decision.action, EventLoopAction::Stop);
-        assert_eq!(decision.reason.as_deref(), Some("no event-loop decision emitted"));
+        assert_eq!(
+            decision.reason.as_deref(),
+            Some("no event-loop decision emitted")
+        );
     }
 
     #[test]
