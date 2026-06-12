@@ -48,6 +48,14 @@ pub enum Command {
     Resume { id: String },
     /// Run a job now (still advance-before-run).
     Run { id: String },
+    /// Run a configured event-loop job immediately with zero wait between iterations.
+    RunLoop {
+        id: String,
+        #[arg(long)]
+        max_chain_runs: Option<u32>,
+        #[arg(long)]
+        max_runtime_seconds: Option<u64>,
+    },
     /// Run exactly one scheduling pass (for OS-scheduler-driven mode).
     Tick,
     /// Run the built-in tick loop, or install/uninstall the OS service.
@@ -187,6 +195,20 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Pause { id } => cmd_set_paused(&home, &id, true),
         Command::Resume { id } => cmd_set_paused(&home, &id, false),
         Command::Run { id } => cmd_run(&home, &id),
+        Command::RunLoop {
+            id,
+            max_chain_runs,
+            max_runtime_seconds,
+        } => {
+            let override_policy = match (max_chain_runs, max_runtime_seconds) {
+                (None, None) => None,
+                (chain, runtime) => Some(codex_cron_core::EventLoopPolicy {
+                    max_chain_runs: chain.unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
+                    max_runtime_seconds: runtime.unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
+                }),
+            };
+            crate::event_loop::run_loop(&home, &id, override_policy)
+        }
         Command::Tick => {
             let report = run_one_tick(&home)?;
             print_tick_report(&report);

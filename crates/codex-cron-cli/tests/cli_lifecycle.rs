@@ -189,3 +189,37 @@ fn add_event_loop_job_persists_policy() {
     assert_eq!(jobs[0]["event_loop"]["max_chain_runs"], 4);
     assert_eq!(jobs[0]["event_loop"]["max_runtime_seconds"], 120);
 }
+
+#[test]
+fn run_loop_immediately_chains_until_stop_decision() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("state.txt");
+    let script = format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 3 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}'; fi"#,
+        state = state.display()
+    );
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "loop",
+            "--executor",
+            "shell",
+            "--script",
+            &script,
+            "--event-loop",
+            "--max-chain-runs",
+            "5",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    cc(&home).args(["run-loop", &id]).assert().success().stdout(contains("iterations=3"));
+
+    let latest = home.path().join("event-loop").join(&id).join("latest.json");
+    let summary: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(latest).unwrap()).unwrap();
+    assert_eq!(summary["status"], "stopped");
+    assert_eq!(summary["iterations"], 3);
+}
