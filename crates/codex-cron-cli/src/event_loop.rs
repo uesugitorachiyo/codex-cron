@@ -48,9 +48,19 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
             .with_context(|| format!("event-loop target job {id} did not fire"))?;
         if fired.status.as_str() != "success" {
             status = "failed".to_string();
-            decisions.push(
-                json!({"iteration": iterations, "action": "fail", "reason": fired.status.as_str()}),
-            );
+            decisions.push(json!({
+                "iteration": iterations,
+                "action": "fail",
+                "reason": fired
+                    .output
+                    .error
+                    .as_deref()
+                    .unwrap_or_else(|| fired.status.as_str()),
+                "run_status": fired.status.as_str(),
+                "run_summary": &fired.output.summary,
+                "run_error": &fired.output.error,
+                "run_markdown_excerpt": excerpt(&fired.output.markdown, 2000)
+            }));
             break;
         }
 
@@ -101,4 +111,15 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
     );
     println!("summary={}", path.display());
     Ok(())
+}
+
+fn excerpt(text: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for ch in text.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if text.chars().count() > max_chars {
+        out.push_str("\n...[truncated]");
+    }
+    out
 }

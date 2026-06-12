@@ -28,6 +28,11 @@ fn first_job_id(home: &TempDir) -> String {
         .to_string()
 }
 
+fn event_loop_summary(home: &TempDir, id: &str) -> serde_json::Value {
+    let latest = home.path().join("event-loop").join(id).join("latest.json");
+    serde_json::from_str(&std::fs::read_to_string(latest).unwrap()).unwrap()
+}
+
 #[cfg(unix)]
 fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
     let iteration = if include_iteration {
@@ -281,17 +286,11 @@ fn run_loop_immediately_chains_until_stop_decision() {
         .success();
     let id = first_job_id(&home);
 
-    cc(&home)
-        .args(["run-loop", &id])
-        .assert()
-        .success()
-        .stdout(contains("iterations=3"));
+    cc(&home).args(["run-loop", &id]).assert().success();
 
-    let latest = home.path().join("event-loop").join(&id).join("latest.json");
-    let summary: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(latest).unwrap()).unwrap();
-    assert_eq!(summary["status"], "stopped");
-    assert_eq!(summary["iterations"], 3);
+    let summary = event_loop_summary(&home, &id);
+    assert_eq!(summary["status"], "stopped", "summary={summary:#}");
+    assert_eq!(summary["iterations"], 3, "summary={summary:#}");
 }
 
 #[test]
@@ -323,7 +322,8 @@ fn run_loop_preserves_one_markdown_file_per_iteration() {
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
         .count();
-    assert_eq!(md_count, 5);
+    let summary = event_loop_summary(&home, &id);
+    assert_eq!(md_count, 5, "summary={summary:#}");
 }
 
 #[test]
@@ -357,12 +357,8 @@ fn tick_runs_due_event_loop_job_as_chain() {
 
     cc(&home).args(["tick-loop"]).assert().success();
 
-    let latest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(home.path().join("event-loop").join(&id).join("latest.json"))
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(latest["iterations"], 2);
+    let latest = event_loop_summary(&home, &id);
+    assert_eq!(latest["iterations"], 2, "summary={latest:#}");
 }
 
 #[test]
@@ -412,17 +408,8 @@ fn tick_loop_runs_event_loop_and_ordinary_due_jobs() {
 
     cc(&home).args(["tick-loop"]).assert().success();
 
-    let latest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(
-            home.path()
-                .join("event-loop")
-                .join(&loop_id)
-                .join("latest.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(latest["iterations"], 2);
+    let latest = event_loop_summary(&home, &loop_id);
+    assert_eq!(latest["iterations"], 2, "summary={latest:#}");
     assert_eq!(
         std::fs::read_to_string(ordinary_state).unwrap().trim(),
         "ordinary-ran"
@@ -476,6 +463,6 @@ fn daemon_event_loop_runs_due_chain() {
 
     let summary: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(latest).unwrap()).unwrap();
-    assert_eq!(summary["status"], "stopped");
-    assert_eq!(summary["iterations"], 2);
+    assert_eq!(summary["status"], "stopped", "summary={summary:#}");
+    assert_eq!(summary["iterations"], 2, "summary={summary:#}");
 }
