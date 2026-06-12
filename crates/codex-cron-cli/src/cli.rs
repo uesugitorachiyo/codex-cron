@@ -58,6 +58,8 @@ pub enum Command {
     },
     /// Run exactly one scheduling pass (for OS-scheduler-driven mode).
     Tick,
+    /// Run one scheduling pass, expanding due event-loop jobs into zero-wait chains.
+    TickLoop,
     /// Run the built-in tick loop, or install/uninstall the OS service.
     Daemon(DaemonArgs),
     /// Check configuration, binaries, lock health, and next-due jobs.
@@ -160,6 +162,9 @@ pub struct DaemonArgs {
     /// Seconds between ticks when running the loop.
     #[arg(long, default_value_t = 60)]
     pub interval: u64,
+    /// Run due event-loop jobs as bounded zero-wait chains.
+    #[arg(long)]
+    pub event_loop: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -214,10 +219,14 @@ pub fn run(cli: Cli) -> Result<()> {
             print_tick_report(&report);
             Ok(())
         }
+        Command::TickLoop => {
+            run_tick_loop(&home)?;
+            Ok(())
+        }
         Command::Daemon(args) => match args.action {
             Some(DaemonAction::Install { interval }) => daemon::install(&home, interval),
             Some(DaemonAction::Uninstall) => daemon::uninstall(),
-            None => daemon::run_loop(&home, args.interval),
+            None => daemon::run_loop(&home, args.interval, args.event_loop),
         },
         Command::Doctor => cmd_doctor(&home),
         Command::Config { action } => cmd_config(&home, action),
@@ -302,6 +311,33 @@ pub fn run_target_tick(home: &Path, id: &str) -> Result<TickReport> {
             Ok(report)
         }
     }
+}
+
+pub fn run_tick_loop(home: &Path) -> Result<()> {
+    let due_event_loop_ids = due_event_loop_job_ids(home)?;
+    if due_event_loop_ids.is_empty() {
+        let report = run_one_tick(home)?;
+        print_tick_report(&report);
+        return Ok(());
+    }
+    for id in due_event_loop_ids {
+        crate::event_loop::run_loop(home, &id, None)?;
+    }
+    Ok(())
+}
+
+fn due_event_loop_job_ids(home: &Path) -> Result<Vec<String>> {
+    let jobs = FileJobStore::new(home).load()?;
+    let now = Utc::now();
+    Ok(jobs
+        .into_iter()
+        .filter(|job| {
+            job.enabled
+                && job.event_loop.is_some()
+                && job.next_run_at.is_some_and(|time| time <= now)
+        })
+        .map(|job| job.id)
+        .collect())
 }
 
 // ---- handlers ----
