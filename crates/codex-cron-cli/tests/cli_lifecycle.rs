@@ -93,6 +93,64 @@ fn write_text_script(path: &std::path::Path, text: &str) -> String {
     )
 }
 
+#[cfg(unix)]
+fn ao2_decision_file_script(
+    state: &std::path::Path,
+    decision_file: &str,
+    backoff_after: u32,
+) -> String {
+    format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; mkdir -p "$(dirname "{decision_file}")"; if [ "$n" -lt {backoff_after} ]; then cat > "{decision_file}" <<'JSON'
+{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"AO2 Pulse generated next task","next_task_id":"ao2-prod-ready-g1"}},"ao2":{{"schema_version":"ao2.pulse-codex-cron-event-loop-decision.v1","task_count":1}}}}
+JSON
+else cat > "{decision_file}" <<'JSON'
+{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"backoff","reason":"AO2 Pulse has no ready task"}},"ao2":{{"schema_version":"ao2.pulse-codex-cron-event-loop-decision.v1","task_count":0}}}}
+JSON
+fi; echo "AO2 Pulse wrote decision artifact""#,
+        state = state.display()
+    )
+}
+
+#[cfg(windows)]
+fn ao2_decision_file_script(
+    state: &std::path::Path,
+    decision_file: &str,
+    backoff_after: u32,
+) -> String {
+    let script_path = state.with_extension("ps1");
+    let body = format!(
+        r##"param([string]$StatePath)
+$DecisionFile = "{decision_file}"
+$n = 0
+if (Test-Path -LiteralPath $StatePath) {{
+  $raw = Get-Content -LiteralPath $StatePath -Raw
+  if ($raw.Trim()) {{
+    $n = [int]$raw.Trim()
+  }}
+}}
+$n += 1
+Set-Content -LiteralPath $StatePath -Value $n -NoNewline
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $DecisionFile) | Out-Null
+if ($n -lt {backoff_after}) {{
+@'
+{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"AO2 Pulse generated next task","next_task_id":"ao2-prod-ready-g1"}},"ao2":{{"schema_version":"ao2.pulse-codex-cron-event-loop-decision.v1","task_count":1}}}}
+'@ | Set-Content -LiteralPath $DecisionFile -NoNewline
+}} else {{
+@'
+{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"backoff","reason":"AO2 Pulse has no ready task"}},"ao2":{{"schema_version":"ao2.pulse-codex-cron-event-loop-decision.v1","task_count":0}}}}
+'@ | Set-Content -LiteralPath $DecisionFile -NoNewline
+}}
+Write-Output "AO2 Pulse wrote decision artifact"
+"##
+    );
+    std::fs::write(&script_path, body).unwrap();
+    format!(
+        r#"powershell -NoProfile -ExecutionPolicy Bypass -File {} {}"#,
+        script_path.display(),
+        state.display()
+    )
+}
+
 #[test]
 fn doctor_is_healthy_on_a_fresh_home() {
     let home = TempDir::new().unwrap();
@@ -296,6 +354,51 @@ fn run_loop_immediately_chains_until_stop_decision() {
     let summary = event_loop_summary(&home, &id);
     assert_eq!(summary["status"], "stopped", "summary={summary:#}");
     assert_eq!(summary["iterations"], 3, "summary={summary:#}");
+}
+
+#[test]
+fn run_loop_reads_ao2_pulse_decision_file_without_stdout_json() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("ao2-pulse-state.txt");
+    let decision_file = "target/pulse-next-recommended-tasks/codex-cron-event-loop-decision.json";
+    let script = ao2_decision_file_script(&state, decision_file, 2);
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "ao2 pulse",
+            "--executor",
+            "shell",
+            "--workdir",
+            home.path().to_str().unwrap(),
+            "--script",
+            &script,
+            "--event-loop",
+            "--event-loop-decision-file",
+            decision_file,
+            "--max-chain-runs",
+            "4",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    cc(&home)
+        .args(["run-loop", &id, "--max-chain-runs", "4"])
+        .assert()
+        .success();
+
+    let summary = event_loop_summary(&home, &id);
+    assert_eq!(summary["status"], "backoff", "summary={summary:#}");
+    assert_eq!(summary["iterations"], 2, "summary={summary:#}");
+    assert_eq!(summary["decisions"][0]["action"], "continue");
+    assert_eq!(summary["decisions"][0]["next_task_id"], "ao2-prod-ready-g1");
+    assert_eq!(summary["decisions"][0]["decision_source"], "file");
+    assert_eq!(
+        summary["decisions"][0]["decision_file"].as_str(),
+        Some(home.path().join(decision_file).to_string_lossy().as_ref())
+    );
+    assert_eq!(summary["decisions"][1]["action"], "backoff");
 }
 
 #[test]

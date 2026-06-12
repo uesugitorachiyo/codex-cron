@@ -156,14 +156,21 @@ when its output emits:
 The loop stops on `stop`, `backoff`, `fail`, command failure, `max_chain_runs`,
 or `max_runtime_seconds`.
 
+For tools that write durable artifacts, configure
+`--event-loop-decision-file <path>` instead of relying on stdout. Relative
+decision-file paths resolve against the job `--workdir`; this lets AO2 Pulse
+write `target/pulse-next-recommended-tasks/codex-cron-event-loop-decision.json`
+and lets `codex-cron` consume the structured decision directly.
+
 Example:
 
 ```sh
 codex-cron add "every 30m" "AO2 Pulse production readiness" \
   --executor shell \
   --workdir /Users/torachiyouesugi/Documents/public/ao2 \
-  --script "npm run pulse:one-shot" \
+  --script "npm run pulse:generate-next" \
   --event-loop \
+  --event-loop-decision-file target/pulse-next-recommended-tasks/codex-cron-event-loop-decision.json \
   --max-chain-runs 3 \
   --max-runtime-seconds 2700
 

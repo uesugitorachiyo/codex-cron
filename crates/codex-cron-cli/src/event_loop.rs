@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -15,9 +15,24 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
         .iter()
         .find(|job| job.id == id)
         .with_context(|| format!("no job with id {id}"))?;
-    let policy = override_policy.or_else(|| job.event_loop.clone()).context(
-        "job is not configured for event-loop; add --event-loop or pass run-loop overrides",
-    )?;
+    let stored_policy = job.event_loop.clone();
+    let policy = match override_policy {
+        Some(mut policy) => {
+            if policy.decision_file.is_none() {
+                policy.decision_file = stored_policy
+                    .as_ref()
+                    .and_then(|stored| stored.decision_file.clone());
+            }
+            policy
+        }
+        None => stored_policy.context(
+            "job is not configured for event-loop; add --event-loop or pass run-loop overrides",
+        )?,
+    };
+    let decision_file = policy
+        .decision_file
+        .as_ref()
+        .map(|path| resolve_decision_file(home, job.workdir.as_deref(), path));
 
     let started = Instant::now();
     let mut iterations = 0u32;
@@ -64,12 +79,28 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
             break;
         }
 
-        let decision = parse_event_loop_decision(&fired.output.markdown);
+        let (decision, decision_source) = match decision_file.as_ref() {
+            Some(path) => (
+                parse_event_loop_decision_file(path),
+                json!({
+                    "decision_source": "file",
+                    "decision_file": path.display().to_string()
+                }),
+            ),
+            None => (
+                parse_event_loop_decision(&fired.output.markdown),
+                json!({
+                    "decision_source": "output"
+                }),
+            ),
+        };
         decisions.push(json!({
             "iteration": iterations,
             "action": format!("{:?}", decision.action).to_lowercase(),
             "reason": decision.reason,
-            "next_task_id": decision.next_task_id
+            "next_task_id": decision.next_task_id,
+            "decision_source": decision_source["decision_source"],
+            "decision_file": decision_source.get("decision_file").cloned()
         }));
 
         match decision.action {
@@ -122,4 +153,29 @@ fn excerpt(text: &str, max_chars: usize) -> String {
         out.push_str("\n...[truncated]");
     }
     out
+}
+
+fn resolve_decision_file(home: &Path, workdir: Option<&Path>, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(workdir) = workdir {
+        workdir.join(path)
+    } else {
+        home.join(path)
+    }
+}
+
+fn parse_event_loop_decision_file(path: &Path) -> codex_cron_core::EventLoopDecision {
+    match std::fs::read_to_string(path) {
+        Ok(text) => parse_event_loop_decision(&text),
+        Err(error) => codex_cron_core::EventLoopDecision {
+            action: EventLoopAction::Fail,
+            reason: Some(format!(
+                "event-loop decision file unavailable: {} ({})",
+                path.display(),
+                error
+            )),
+            next_task_id: None,
+        },
+    }
 }
