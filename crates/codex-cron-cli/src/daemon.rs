@@ -125,6 +125,7 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             .status()?;
         anyhow::ensure!(status.success(), "launchctl load failed");
         println!("installed launchd agent: {}", path.display());
+        Ok(())
     }
     #[cfg(target_os = "linux")]
     {
@@ -141,6 +142,7 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             .status()?;
         anyhow::ensure!(status.success(), "systemctl enable failed");
         println!("installed systemd user unit: {}", path.display());
+        Ok(())
     }
     #[cfg(target_os = "windows")]
     {
@@ -150,7 +152,6 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             windows_schtasks_create(&program, home)
         );
     }
-    Ok(())
 }
 
 /// Remove the OS service for the current platform.
