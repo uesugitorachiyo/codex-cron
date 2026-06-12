@@ -367,6 +367,7 @@ mod tests {
         let fake = dir.path().join("fake-codex");
         let mut f = std::fs::File::create(&fake).unwrap();
         writeln!(f, "#!/bin/sh\necho \"ran: $@\"").unwrap();
+        drop(f);
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let exec = CodexExecutor::new(fake.to_string_lossy().to_string(), dir.path());
@@ -404,6 +405,7 @@ mod tests {
         let fake = dir.path().join("fake-ao2");
         let mut f = std::fs::File::create(&fake).unwrap();
         writeln!(f, "#!/bin/sh\necho \"ao2 args: $@\"").unwrap();
+        drop(f);
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let exec = Ao2Executor::new(fake.to_string_lossy().to_string());

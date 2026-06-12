@@ -121,9 +121,24 @@ pub fn try_acquire_tick_lock(home: &Path) -> io::Result<Option<TickLock>> {
         .open(&path)?;
     match file.try_lock_exclusive() {
         Ok(()) => Ok(Some(TickLock { _file: file })),
-        Err(e) if e.kind() == ErrorKind::WouldBlock => Ok(None),
+        Err(e) if is_lock_contended(&e) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+fn is_lock_contended(e: &io::Error) -> bool {
+    e.kind() == ErrorKind::WouldBlock || is_windows_lock_violation(e)
+}
+
+#[cfg(windows)]
+fn is_windows_lock_violation(e: &io::Error) -> bool {
+    // ERROR_LOCK_VIOLATION: another process owns a byte-range lock.
+    e.raw_os_error() == Some(33)
+}
+
+#[cfg(not(windows))]
+fn is_windows_lock_violation(_e: &io::Error) -> bool {
+    false
 }
 
 #[cfg(test)]
