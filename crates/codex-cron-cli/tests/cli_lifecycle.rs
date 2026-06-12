@@ -43,14 +43,14 @@ fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool
 
 #[cfg(windows)]
 fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
-    let path = state.display().to_string().replace('\'', "''");
+    let path = state.display().to_string();
     let iteration = if include_iteration {
-        "Write-Output ('iteration=' + $n); "
+        "echo iteration=!n! & "
     } else {
         ""
     };
     format!(
-        "powershell -NoProfile -Command \"$p='{path}'; $n=0; if (Test-Path $p) {{ $raw=Get-Content -Raw $p; if ($raw.Trim()) {{ $n=[int]$raw.Trim() }} }}; $n=$n+1; Set-Content -NoNewline -Path $p -Value $n; {iteration}$action=if ($n -lt {stop_after}) {{ 'continue' }} else {{ 'stop' }}; $reason=if ($n -lt {stop_after}) {{ 'chain' }} else {{ 'done' }}; [pscustomobject]@{{ schema_version='codex-cron.event-loop-decision.v1'; event_loop=[pscustomobject]@{{ action=$action; reason=$reason }} }} | ConvertTo-Json -Compress\""
+        r#"setlocal EnableDelayedExpansion & if not exist "{path}" echo 0>"{path}" & set /p n=<"{path}" & set /a n=!n!+1 & echo !n!>"{path}" & {iteration}if !n! LSS {stop_after} (echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}) else (echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}})"#
     )
 }
 
@@ -61,11 +61,7 @@ fn write_text_script(path: &std::path::Path, text: &str) -> String {
 
 #[cfg(windows)]
 fn write_text_script(path: &std::path::Path, text: &str) -> String {
-    let path = path.display().to_string().replace('\'', "''");
-    let text = text.replace('\'', "''");
-    format!(
-        "powershell -NoProfile -Command \"Set-Content -NoNewline -Path '{path}' -Value '{text}'\""
-    )
+    format!(r#"echo {text}>"{}""#, path.display())
 }
 
 #[test]
