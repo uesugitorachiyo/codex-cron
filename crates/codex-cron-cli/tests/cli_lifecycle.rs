@@ -43,17 +43,26 @@ fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool
 
 #[cfg(windows)]
 fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
-    let path = state.display().to_string();
-    let continue_json = r#"{^"schema_version^":^"codex-cron.event-loop-decision.v1^",^"event_loop^":{^"action^":^"continue^",^"reason^":^"chain^"}}"#;
-    let stop_json = r#"{^"schema_version^":^"codex-cron.event-loop-decision.v1^",^"event_loop^":{^"action^":^"stop^",^"reason^":^"done^"}}"#;
-    let iteration = if include_iteration {
-        "echo iteration=!n! & "
-    } else {
-        ""
-    };
-    format!(
-        r#"setlocal EnableDelayedExpansion & if not exist "{path}" echo 0>"{path}" & set /p n=<"{path}" & set /a n=!n!+1 & echo !n!>"{path}" & {iteration}if !n! LSS {stop_after} (echo {continue_json}) else (echo {stop_json})"#
-    )
+    let script_path = state.with_extension("cmd");
+    let iteration = include_iteration
+        .then_some("echo iteration=!n!\r\n")
+        .unwrap_or("");
+    let body = format!(
+        r#"@echo off
+setlocal EnableDelayedExpansion
+if not exist "%~1" echo 0>"%~1"
+set /p n=<"%~1"
+set /a n=!n!+1
+echo !n!>"%~1"
+{iteration}if !n! LSS {stop_after} (
+  echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}
+) else (
+  echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}
+)
+"#
+    );
+    std::fs::write(&script_path, body).unwrap();
+    format!(r#"call "{}" "{}""#, script_path.display(), state.display())
 }
 
 #[cfg(unix)]
