@@ -105,6 +105,15 @@ pub struct AddArgs {
     /// Codex model override.
     #[arg(long)]
     pub model: Option<String>,
+    /// Enable bounded zero-wait event loop
+    #[arg(long)]
+    pub event_loop: bool,
+    /// Maximum number of runs in a single loop chain
+    #[arg(long, default_value_t = codex_cron_core::event_loop::default_max_chain_runs())]
+    pub max_chain_runs: u32,
+    /// Maximum seconds a loop chain is allowed to run
+    #[arg(long, default_value_t = codex_cron_core::event_loop::default_max_runtime_seconds())]
+    pub max_runtime_seconds: u64,
 }
 
 #[derive(Debug, Args)]
@@ -126,6 +135,14 @@ pub struct EditArgs {
     pub workdir: Option<PathBuf>,
     #[arg(long)]
     pub model: Option<String>,
+    #[arg(long)]
+    pub event_loop: bool,
+    #[arg(long)]
+    pub no_event_loop: bool,
+    #[arg(long)]
+    pub max_chain_runs: Option<u32>,
+    #[arg(long)]
+    pub max_runtime_seconds: Option<u64>,
 }
 
 #[derive(Debug, Args)]
@@ -283,6 +300,11 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
         .name
         .unwrap_or_else(|| default_name(&args.prompt));
 
+    let event_loop = args.event_loop.then_some(codex_cron_core::EventLoopPolicy {
+        max_chain_runs: args.max_chain_runs,
+        max_runtime_seconds: args.max_runtime_seconds,
+    });
+
     let job = Job::new(
         NewJob {
             id: id::new_id(),
@@ -300,7 +322,7 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
             workdir: args.workdir,
             context_from: args.context_from,
             codex_model: args.model,
-            event_loop: None,
+            event_loop,
         },
         now,
     );
@@ -417,6 +439,27 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
     }
     if let Some(m) = args.model {
         job.codex_model = Some(m);
+    }
+    if args.event_loop {
+        job.event_loop = Some(codex_cron_core::EventLoopPolicy {
+            max_chain_runs: args.max_chain_runs.unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
+            max_runtime_seconds: args
+                .max_runtime_seconds
+                .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
+        });
+    }
+    if args.no_event_loop {
+        job.event_loop = None;
+    }
+    if let Some(max_chain_runs) = args.max_chain_runs {
+        if let Some(policy) = &mut job.event_loop {
+            policy.max_chain_runs = max_chain_runs;
+        }
+    }
+    if let Some(max_runtime_seconds) = args.max_runtime_seconds {
+        if let Some(policy) = &mut job.event_loop {
+            policy.max_runtime_seconds = max_runtime_seconds;
+        }
     }
     store.save(&jobs)?;
     println!("updated job {}", args.id);

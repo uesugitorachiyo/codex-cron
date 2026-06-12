@@ -162,3 +162,30 @@ fn unknown_job_id_fails_with_message() {
         .failure()
         .stderr(contains("no job with id"));
 }
+
+#[test]
+fn add_event_loop_job_persists_policy() {
+    let home = TempDir::new().unwrap();
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "pulse one shot",
+            "--executor",
+            "shell",
+            "--script",
+            "echo done",
+            "--event-loop",
+            "--max-chain-runs",
+            "4",
+            "--max-runtime-seconds",
+            "120",
+        ])
+        .assert()
+        .success();
+
+    let out = cc(&home).args(["list", "--json"]).output().unwrap();
+    let jobs: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(jobs[0]["event_loop"]["max_chain_runs"], 4);
+    assert_eq!(jobs[0]["event_loop"]["max_runtime_seconds"], 120);
+}
