@@ -54,6 +54,14 @@ pub fn run_md(home: &Path, id: &str, stamp: &str) -> PathBuf {
     job_output_dir(home, id).join(format!("{stamp}.md"))
 }
 
+pub fn event_loop_dir(home: &Path, id: &str) -> PathBuf {
+    home.join("event-loop").join(id)
+}
+
+pub fn event_loop_latest(home: &Path, id: &str) -> PathBuf {
+    event_loop_dir(home, id).join("latest.json")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,7 +88,10 @@ mod tests {
     fn builds_expected_child_paths() {
         let home = PathBuf::from("/h/.codex-cron");
         assert_eq!(jobs_file(&home), PathBuf::from("/h/.codex-cron/jobs.json"));
-        assert_eq!(config_file(&home), PathBuf::from("/h/.codex-cron/config.toml"));
+        assert_eq!(
+            config_file(&home),
+            PathBuf::from("/h/.codex-cron/config.toml")
+        );
         assert_eq!(lock_file(&home), PathBuf::from("/h/.codex-cron/.tick.lock"));
         assert_eq!(
             run_md(&home, "abc123", "2026-06-01T10-00-00Z"),

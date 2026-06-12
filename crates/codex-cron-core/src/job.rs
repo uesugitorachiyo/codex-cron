@@ -82,6 +82,7 @@ pub struct NewJob {
     pub workdir: Option<PathBuf>,
     pub context_from: Option<String>,
     pub codex_model: Option<String>,
+    pub event_loop: Option<crate::event_loop::EventLoopPolicy>,
 }
 
 /// A scheduled job.
@@ -121,6 +122,8 @@ pub struct Job {
     pub context_from: Option<String>,
     #[serde(default)]
     pub codex_model: Option<String>,
+    #[serde(default)]
+    pub event_loop: Option<crate::event_loop::EventLoopPolicy>,
 }
 
 /// Errors from the store-envelope helpers.
@@ -163,6 +166,7 @@ impl Job {
             workdir: spec.workdir,
             context_from: spec.context_from,
             codex_model: spec.codex_model,
+            event_loop: spec.event_loop,
         }
     }
 }
@@ -218,6 +222,7 @@ mod tests {
             workdir: None,
             context_from: None,
             codex_model: None,
+            event_loop: None,
         }
     }
 
@@ -316,7 +321,10 @@ mod tests {
 
     #[test]
     fn executor_kind_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&ExecutorKind::Ao2).unwrap(), "\"ao2\"");
+        assert_eq!(
+            serde_json::to_string(&ExecutorKind::Ao2).unwrap(),
+            "\"ao2\""
+        );
         assert_eq!(
             serde_json::to_string(&ExecutorKind::Shell).unwrap(),
             "\"shell\""
