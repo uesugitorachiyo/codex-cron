@@ -199,7 +199,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn args() -> Vec<String> {
-        vec!["daemon".to_string(), "--interval".to_string(), "60".to_string()]
+        vec![
+            "daemon".to_string(),
+            "--interval".to_string(),
+            "60".to_string(),
+        ]
     }
 
     #[test]

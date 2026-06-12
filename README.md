@@ -142,6 +142,43 @@ codex-cron daemon uninstall
 On Windows, `daemon install` prints the `schtasks` command to register it at
 logon.
 
+## Event-loop jobs
+
+`codex-cron` can run a job as a bounded zero-wait event loop. This is different
+from `daemon --interval`: the interval only decides when the first iteration is
+eligible. Once started, an event-loop job immediately runs the next iteration
+when its output emits:
+
+```json
+{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{"action":"continue"}}
+```
+
+The loop stops on `stop`, `backoff`, `fail`, command failure, `max_chain_runs`,
+or `max_runtime_seconds`.
+
+Example:
+
+```sh
+codex-cron add "every 30m" "AO2 Pulse production readiness" \
+  --executor shell \
+  --workdir /Users/torachiyouesugi/Documents/public/ao2 \
+  --script "npm run pulse:one-shot" \
+  --event-loop \
+  --max-chain-runs 3 \
+  --max-runtime-seconds 2700
+
+codex-cron tick-loop
+codex-cron daemon --event-loop --interval 60
+```
+
+Evidence is written under:
+
+```text
+~/.codex-cron/event-loop/<job-id>/latest.json
+```
+
+For a detailed integration guide (e.g. with AO2 Pulse), see [docs/examples/ao2-pulse-event-loop.md](docs/examples/ao2-pulse-event-loop.md).
+
 ## Configuration
 
 `codex-cron config show | get <key> | set <key> <value>` reads and writes

@@ -36,8 +36,9 @@ impl JobStore for FileJobStore {
         let path = self.jobs_path();
         match fs::read_to_string(&path) {
             Ok(s) if s.trim().is_empty() => Ok(Vec::new()),
-            Ok(s) => parse_jobs(&s)
-                .map_err(|e| StoreError::new(format!("{}: {e}", path.display()))),
+            Ok(s) => {
+                parse_jobs(&s).map_err(|e| StoreError::new(format!("{}: {e}", path.display())))
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(StoreError::new(format!("{}: {e}", path.display()))),
         }

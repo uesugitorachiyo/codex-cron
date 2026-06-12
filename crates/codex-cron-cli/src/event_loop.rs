@@ -15,9 +15,9 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
         .iter()
         .find(|job| job.id == id)
         .with_context(|| format!("no job with id {id}"))?;
-    let policy = override_policy
-        .or_else(|| job.event_loop.clone())
-        .context("job is not configured for event-loop; add --event-loop or pass run-loop overrides")?;
+    let policy = override_policy.or_else(|| job.event_loop.clone()).context(
+        "job is not configured for event-loop; add --event-loop or pass run-loop overrides",
+    )?;
 
     let started = Instant::now();
     let mut iterations = 0u32;
@@ -48,7 +48,9 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
             .with_context(|| format!("event-loop target job {id} did not fire"))?;
         if fired.status.as_str() != "success" {
             status = "failed".to_string();
-            decisions.push(json!({"iteration": iterations, "action": "fail", "reason": fired.status.as_str()}));
+            decisions.push(
+                json!({"iteration": iterations, "action": "fail", "reason": fired.status.as_str()}),
+            );
             break;
         }
 
@@ -94,7 +96,10 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
     let path = crate::paths::event_loop_latest(home, id);
     std::fs::create_dir_all(path.parent().unwrap())?;
     atomic_write(&path, serde_json::to_string_pretty(&payload)?.as_bytes())?;
-    println!("event-loop job {id}: status={} iterations={iterations}", payload["status"]);
+    println!(
+        "event-loop job {id}: status={} iterations={iterations}",
+        payload["status"]
+    );
     println!("summary={}", path.display());
     Ok(())
 }

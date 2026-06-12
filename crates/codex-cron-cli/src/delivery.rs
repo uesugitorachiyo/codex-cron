@@ -140,7 +140,10 @@ fn host_of(url: &str) -> Option<String> {
         .next()
         .unwrap_or(after_scheme);
     // Strip userinfo and port.
-    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host_port = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     let host = host_port.split(':').next().unwrap_or(host_port);
     if host.is_empty() {
         None
@@ -191,7 +194,10 @@ mod tests {
 
     #[test]
     fn host_of_extracts_host() {
-        assert_eq!(host_of("https://example.com/x").as_deref(), Some("example.com"));
+        assert_eq!(
+            host_of("https://example.com/x").as_deref(),
+            Some("example.com")
+        );
         assert_eq!(
             host_of("http://user@1.2.3.4:8080/p").as_deref(),
             Some("1.2.3.4")

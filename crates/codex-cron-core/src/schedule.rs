@@ -100,7 +100,12 @@ pub fn parse_schedule(
                 expr: display.clone(),
                 message: e.to_string(),
             })?;
-        return Ok((Schedule::Cron { expr: display.clone() }, display));
+        return Ok((
+            Schedule::Cron {
+                expr: display.clone(),
+            },
+            display,
+        ));
     }
 
     // 3. bare duration -> once at now + dur.
@@ -327,10 +332,7 @@ mod tests {
             expr: "0 * * * *".to_string(),
         };
         let now = at(2026, 6, 1, 10, 30);
-        assert_eq!(
-            compute_next_run(&s, None, now),
-            Some(at(2026, 6, 1, 11, 0))
-        );
+        assert_eq!(compute_next_run(&s, None, now), Some(at(2026, 6, 1, 11, 0)));
     }
 
     #[test]

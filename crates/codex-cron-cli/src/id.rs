@@ -15,9 +15,7 @@ pub fn new_id() -> String {
         .unwrap_or(0);
     let count = COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
     let pid = std::process::id() as u128;
-    let mixed = nanos
-        ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ (pid << 17);
+    let mixed = nanos ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (pid << 17);
     format!("{:012x}", (mixed as u64) & 0xFFFF_FFFF_FFFF)
 }
 
@@ -30,7 +28,9 @@ mod tests {
     fn id_is_twelve_lowercase_hex() {
         let id = new_id();
         assert_eq!(id.len(), 12, "got {id}");
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]

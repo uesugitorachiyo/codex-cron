@@ -208,8 +208,10 @@ pub fn run(cli: Cli) -> Result<()> {
             let override_policy = match (max_chain_runs, max_runtime_seconds) {
                 (None, None) => None,
                 (chain, runtime) => Some(codex_cron_core::EventLoopPolicy {
-                    max_chain_runs: chain.unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
-                    max_runtime_seconds: runtime.unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
+                    max_chain_runs: chain
+                        .unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
+                    max_runtime_seconds: runtime
+                        .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
                 }),
             };
             crate::event_loop::run_loop(&home, &id, override_policy)
@@ -261,14 +263,7 @@ pub fn run_one_tick(home: &Path) -> Result<TickReport> {
             Ok(TickReport::default())
         }
         Some(_lock) => {
-            let report = tick(
-                &clock,
-                &store,
-                &executors,
-                &deliveries,
-                &scanner,
-                &tick_cfg,
-            )?;
+            let report = tick(&clock, &store, &executors, &deliveries, &scanner, &tick_cfg)?;
             Ok(report)
         }
     }
@@ -300,14 +295,7 @@ pub fn run_target_tick(home: &Path, id: &str) -> Result<TickReport> {
             Ok(TickReport::default())
         }
         Some(_lock) => {
-            let report = tick(
-                &clock,
-                &store,
-                &executors,
-                &deliveries,
-                &scanner,
-                &tick_cfg,
-            )?;
+            let report = tick(&clock, &store, &executors, &deliveries, &scanner, &tick_cfg)?;
             Ok(report)
         }
     }
@@ -354,9 +342,7 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
         .unwrap_or_else(|| executor_from_str(&cfg.default_executor));
     let script = resolve_script(args.script)?;
     let deliver = parse_deliver(&args.deliver, &cfg)?;
-    let name = args
-        .name
-        .unwrap_or_else(|| default_name(&args.prompt));
+    let name = args.name.unwrap_or_else(|| default_name(&args.prompt));
 
     let event_loop = args.event_loop.then_some(codex_cron_core::EventLoopPolicy {
         max_chain_runs: args.max_chain_runs,
@@ -438,7 +424,10 @@ fn cmd_show(home: &Path, id: &str) -> Result<()> {
     println!("created_at:     {}", fmt_dt(Some(job.created_at)));
     println!("next_run_at:    {}", fmt_dt(job.next_run_at));
     println!("last_run_at:    {}", fmt_dt(job.last_run_at));
-    println!("last_status:    {}", job.last_status.as_deref().unwrap_or("-"));
+    println!(
+        "last_status:    {}",
+        job.last_status.as_deref().unwrap_or("-")
+    );
     if let Some(err) = &job.last_error {
         println!("last_error:     {err}");
     }
@@ -500,7 +489,9 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
     }
     if args.event_loop {
         job.event_loop = Some(codex_cron_core::EventLoopPolicy {
-            max_chain_runs: args.max_chain_runs.unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
+            max_chain_runs: args
+                .max_chain_runs
+                .unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
             max_runtime_seconds: args
                 .max_runtime_seconds
                 .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
@@ -626,7 +617,10 @@ fn cmd_doctor(home: &Path) -> Result<()> {
                 .min()
                 .map(|t| fmt_dt(Some(t)))
                 .unwrap_or_else(|| "-".to_string());
-            println!("  [ok]   {} job(s); {due} due now; next at {next}", jobs.len());
+            println!(
+                "  [ok]   {} job(s); {due} due now; next at {next}",
+                jobs.len()
+            );
         }
         Err(e) => {
             ok = false;
@@ -744,10 +738,9 @@ fn parse_deliver(specs: &[String], cfg: &Config) -> Result<Vec<DeliveryTarget>> 
         match spec.as_str() {
             "file" => out.push(DeliveryTarget::File),
             "webhook" => {
-                let url = cfg
-                    .default_webhook
-                    .clone()
-                    .context("`--deliver webhook` needs a default_webhook in config, or use webhook:URL")?;
+                let url = cfg.default_webhook.clone().context(
+                    "`--deliver webhook` needs a default_webhook in config, or use webhook:URL",
+                )?;
                 out.push(DeliveryTarget::Webhook { url });
             }
             other => {
@@ -791,7 +784,10 @@ mod tests {
     #[test]
     fn parse_deliver_defaults_to_file() {
         let cfg = Config::default();
-        assert_eq!(parse_deliver(&[], &cfg).unwrap(), vec![DeliveryTarget::File]);
+        assert_eq!(
+            parse_deliver(&[], &cfg).unwrap(),
+            vec![DeliveryTarget::File]
+        );
     }
 
     #[test]

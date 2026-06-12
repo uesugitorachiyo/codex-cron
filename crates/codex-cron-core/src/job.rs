@@ -321,7 +321,10 @@ mod tests {
 
     #[test]
     fn executor_kind_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&ExecutorKind::Ao2).unwrap(), "\"ao2\"");
+        assert_eq!(
+            serde_json::to_string(&ExecutorKind::Ao2).unwrap(),
+            "\"ao2\""
+        );
         assert_eq!(
             serde_json::to_string(&ExecutorKind::Shell).unwrap(),
             "\"shell\""
