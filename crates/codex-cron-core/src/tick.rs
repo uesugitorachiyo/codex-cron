@@ -517,6 +517,7 @@ mod tests {
                 workdir: None,
                 context_from: None,
                 codex_model: None,
+                event_loop: None,
             },
             now,
         );

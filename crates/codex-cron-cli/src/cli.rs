@@ -260,6 +260,7 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
             workdir: args.workdir,
             context_from: args.context_from,
             codex_model: args.model,
+            event_loop: None,
         },
         now,
     );

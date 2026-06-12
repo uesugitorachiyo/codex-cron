@@ -272,6 +272,7 @@ mod tests {
                 workdir: None,
                 context_from: None,
                 codex_model: None,
+                event_loop: None,
             },
             chrono::Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 0).unwrap(),
         )
