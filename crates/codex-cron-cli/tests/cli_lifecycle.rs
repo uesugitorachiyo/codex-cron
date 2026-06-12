@@ -72,7 +72,7 @@ Set-Content -LiteralPath $StatePath -Value $n -NoNewline
     );
     std::fs::write(&script_path, body).unwrap();
     format!(
-        r#"powershell -NoProfile -ExecutionPolicy Bypass -File "{}" "{}""#,
+        r#"powershell -NoProfile -ExecutionPolicy Bypass -File {} {}"#,
         script_path.display(),
         state.display()
     )
