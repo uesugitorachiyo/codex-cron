@@ -48,7 +48,7 @@ fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool
         .then_some("Write-Output \"iteration=$n\"\r\n")
         .unwrap_or("");
     let body = format!(
-        r##"#param([string]$StatePath)
+        r##"param([string]$StatePath)
 $n = 0
 if (Test-Path -LiteralPath $StatePath) {{
   $raw = Get-Content -LiteralPath $StatePath -Raw
