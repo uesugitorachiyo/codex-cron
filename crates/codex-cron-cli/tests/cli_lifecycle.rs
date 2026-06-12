@@ -7,6 +7,8 @@
 
 use assert_cmd::Command;
 use predicates::str::contains;
+use std::process::{Command as StdCommand, Stdio};
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 /// A `codex-cron` command rooted at an isolated, temporary `CODEX_CRON_HOME`.
@@ -241,6 +243,41 @@ fn run_loop_immediately_chains_until_stop_decision() {
 }
 
 #[test]
+fn run_loop_preserves_one_markdown_file_per_iteration() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("output-state.txt");
+    let script = format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; echo iteration="$n"; if [ "$n" -lt 5 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
+        state = state.display()
+    );
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "loop",
+            "--executor",
+            "shell",
+            "--script",
+            &script,
+            "--event-loop",
+            "--max-chain-runs",
+            "8",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    cc(&home).args(["run-loop", &id]).assert().success();
+
+    let md_count = std::fs::read_dir(home.path().join("output").join(&id))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+        .count();
+    assert_eq!(md_count, 5);
+}
+
+#[test]
 fn tick_runs_due_event_loop_job_as_chain() {
     let home = TempDir::new().unwrap();
     let state = home.path().join("tick-loop-state.txt");
@@ -280,4 +317,125 @@ fn tick_runs_due_event_loop_job_as_chain() {
     )
     .unwrap();
     assert_eq!(latest["iterations"], 2);
+}
+
+#[test]
+fn tick_loop_runs_event_loop_and_ordinary_due_jobs() {
+    let home = TempDir::new().unwrap();
+    let loop_state = home.path().join("mixed-loop-state.txt");
+    let ordinary_state = home.path().join("mixed-ordinary-state.txt");
+    let loop_script = format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
+        state = loop_state.display()
+    );
+    let ordinary_script = format!(r#"echo ordinary-ran > "{}""#, ordinary_state.display());
+
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "loop",
+            "--executor",
+            "shell",
+            "--script",
+            &loop_script,
+            "--event-loop",
+            "--max-chain-runs",
+            "4",
+        ])
+        .assert()
+        .success();
+    let loop_id = first_job_id(&home);
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "ordinary",
+            "--executor",
+            "shell",
+            "--script",
+            &ordinary_script,
+        ])
+        .assert()
+        .success();
+
+    let jobs_path = home.path().join("jobs.json");
+    let mut jobs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&jobs_path).unwrap()).unwrap();
+    for job in jobs["jobs"].as_array_mut().unwrap() {
+        job["next_run_at"] = serde_json::json!("2026-06-01T10:00:00Z");
+    }
+    std::fs::write(&jobs_path, serde_json::to_string_pretty(&jobs).unwrap()).unwrap();
+
+    cc(&home).args(["tick-loop"]).assert().success();
+
+    let latest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            home.path()
+                .join("event-loop")
+                .join(&loop_id)
+                .join("latest.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(latest["iterations"], 2);
+    assert_eq!(
+        std::fs::read_to_string(ordinary_state).unwrap().trim(),
+        "ordinary-ran"
+    );
+}
+
+#[test]
+fn daemon_event_loop_runs_due_chain() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("daemon-loop-state.txt");
+    let script = format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
+        state = state.display()
+    );
+
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "loop",
+            "--executor",
+            "shell",
+            "--script",
+            &script,
+            "--event-loop",
+            "--max-chain-runs",
+            "4",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    let jobs_path = home.path().join("jobs.json");
+    let mut jobs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&jobs_path).unwrap()).unwrap();
+    jobs["jobs"][0]["next_run_at"] = serde_json::json!("2026-06-01T10:00:00Z");
+    std::fs::write(&jobs_path, serde_json::to_string_pretty(&jobs).unwrap()).unwrap();
+
+    let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("codex-cron"))
+        .env("CODEX_CRON_HOME", home.path())
+        .args(["daemon", "--event-loop", "--interval", "1"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let latest = home.path().join("event-loop").join(&id).join("latest.json");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !latest.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let summary: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(latest).unwrap()).unwrap();
+    assert_eq!(summary["status"], "stopped");
+    assert_eq!(summary["iterations"], 2);
 }

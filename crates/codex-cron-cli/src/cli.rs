@@ -311,6 +311,8 @@ pub fn run_tick_loop(home: &Path) -> Result<()> {
     for id in due_event_loop_ids {
         crate::event_loop::run_loop(home, &id, None)?;
     }
+    let report = run_one_tick(home)?;
+    print_tick_report(&report);
     Ok(())
 }
 

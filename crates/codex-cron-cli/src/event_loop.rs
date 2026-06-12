@@ -54,8 +54,7 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
             break;
         }
 
-        let output = latest_markdown(home, id).unwrap_or_default();
-        let decision = parse_event_loop_decision(&output);
+        let decision = parse_event_loop_decision(&fired.output.markdown);
         decisions.push(json!({
             "iteration": iterations,
             "action": format!("{:?}", decision.action).to_lowercase(),
@@ -102,15 +101,4 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
     );
     println!("summary={}", path.display());
     Ok(())
-}
-
-fn latest_markdown(home: &Path, id: &str) -> Option<String> {
-    let mut files: Vec<_> = std::fs::read_dir(home.join("output").join(id))
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-        .collect();
-    files.sort();
-    std::fs::read_to_string(files.last()?).ok()
 }

@@ -29,11 +29,11 @@ impl FileDelivery {
 impl Delivery for FileDelivery {
     fn deliver(&self, job: &Job, out: &RunOutput) -> Result<(), DeliveryError> {
         let now = Utc::now();
-        let stamp = now.format("%Y-%m-%dT%H-%M-%SZ").to_string();
+        let stamp = now.format("%Y-%m-%dT%H-%M-%S%.9fZ").to_string();
         let dir = paths::job_output_dir(&self.home, &job.id);
         ensure_secure_dir(&dir).map_err(de)?;
 
-        let md_path = paths::run_md(&self.home, &job.id, &stamp);
+        let md_path = unique_run_md(&self.home, &job.id, &stamp);
         atomic_write(&md_path, out.markdown.as_bytes()).map_err(de)?;
 
         let line = serde_json::json!({
@@ -46,6 +46,20 @@ impl Delivery for FileDelivery {
         append_line(&paths::runs_log(&self.home, &job.id), &line).map_err(de)?;
         Ok(())
     }
+}
+
+fn unique_run_md(home: &Path, id: &str, stamp: &str) -> PathBuf {
+    let first = paths::run_md(home, id, stamp);
+    if !first.exists() {
+        return first;
+    }
+    for suffix in 1.. {
+        let candidate = paths::run_md(home, id, &format!("{stamp}-{suffix}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded suffix search should return a free output path")
 }
 
 fn append_line(path: &Path, line: &str) -> std::io::Result<()> {

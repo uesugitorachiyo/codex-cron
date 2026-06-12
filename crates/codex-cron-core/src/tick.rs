@@ -121,6 +121,7 @@ pub struct FiredJob {
     pub id: String,
     pub status: RunStatus,
     pub deleted: bool,
+    pub output: RunOutput,
 }
 
 /// What one tick did.
@@ -246,6 +247,7 @@ pub fn tick(
             id: job.id.clone(),
             status: out.status,
             deleted: retire,
+            output: out.clone(),
         });
     }
 
