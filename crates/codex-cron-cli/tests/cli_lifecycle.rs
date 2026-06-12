@@ -223,3 +223,45 @@ fn run_loop_immediately_chains_until_stop_decision() {
     assert_eq!(summary["status"], "stopped");
     assert_eq!(summary["iterations"], 3);
 }
+
+#[test]
+fn tick_runs_due_event_loop_job_as_chain() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("tick-loop-state.txt");
+    let script = format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
+        state = state.display()
+    );
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "loop",
+            "--executor",
+            "shell",
+            "--script",
+            &script,
+            "--event-loop",
+            "--max-chain-runs",
+            "4",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    // Manually edit jobs.json to set next_run_at to the past so it is due
+    let jobs_path = home.path().join("jobs.json");
+    let mut jobs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&jobs_path).unwrap()).unwrap();
+    jobs["jobs"][0]["next_run_at"] = serde_json::json!("2026-06-01T10:00:00Z");
+    std::fs::write(&jobs_path, serde_json::to_string_pretty(&jobs).unwrap()).unwrap();
+
+    cc(&home).args(["tick-loop"]).assert().success();
+
+    let latest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.path().join("event-loop").join(&id).join("latest.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(latest["iterations"], 2);
+}
