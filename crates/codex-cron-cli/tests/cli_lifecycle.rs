@@ -49,9 +49,11 @@ fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool
 #[cfg(windows)]
 fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
     let script_path = state.with_extension("ps1");
-    let iteration = include_iteration
-        .then_some("Write-Output \"iteration=$n\"\r\n")
-        .unwrap_or("");
+    let iteration = if include_iteration {
+        "Write-Output \"iteration=$n\"\r\n"
+    } else {
+        ""
+    };
     let body = format!(
         r##"param([string]$StatePath)
 $n = 0
