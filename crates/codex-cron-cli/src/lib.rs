@@ -16,3 +16,4 @@ pub mod paths;
 pub mod store;
 
 pub mod cli;
+pub mod event_loop;

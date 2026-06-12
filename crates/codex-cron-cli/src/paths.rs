@@ -54,6 +54,14 @@ pub fn run_md(home: &Path, id: &str, stamp: &str) -> PathBuf {
     job_output_dir(home, id).join(format!("{stamp}.md"))
 }
 
+pub fn event_loop_dir(home: &Path, id: &str) -> PathBuf {
+    home.join("event-loop").join(id)
+}
+
+pub fn event_loop_latest(home: &Path, id: &str) -> PathBuf {
+    event_loop_dir(home, id).join("latest.json")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
