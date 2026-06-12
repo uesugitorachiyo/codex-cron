@@ -124,6 +124,9 @@ pub struct AddArgs {
     /// Maximum seconds a loop chain is allowed to run
     #[arg(long, default_value_t = codex_cron_core::event_loop::default_max_runtime_seconds())]
     pub max_runtime_seconds: u64,
+    /// Read event-loop decisions from this JSON file after each run.
+    #[arg(long = "event-loop-decision-file")]
+    pub event_loop_decision_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -153,6 +156,10 @@ pub struct EditArgs {
     pub max_chain_runs: Option<u32>,
     #[arg(long)]
     pub max_runtime_seconds: Option<u64>,
+    #[arg(long = "event-loop-decision-file")]
+    pub event_loop_decision_file: Option<PathBuf>,
+    #[arg(long = "no-event-loop-decision-file")]
+    pub no_event_loop_decision_file: bool,
 }
 
 #[derive(Debug, Args)]
@@ -212,6 +219,7 @@ pub fn run(cli: Cli) -> Result<()> {
                         .unwrap_or_else(codex_cron_core::event_loop::default_max_chain_runs),
                     max_runtime_seconds: runtime
                         .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
+                    decision_file: None,
                 }),
             };
             crate::event_loop::run_loop(&home, &id, override_policy)
@@ -349,6 +357,7 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
     let event_loop = args.event_loop.then_some(codex_cron_core::EventLoopPolicy {
         max_chain_runs: args.max_chain_runs,
         max_runtime_seconds: args.max_runtime_seconds,
+        decision_file: args.event_loop_decision_file,
     });
 
     let job = Job::new(
@@ -497,6 +506,7 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
             max_runtime_seconds: args
                 .max_runtime_seconds
                 .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
+            decision_file: args.event_loop_decision_file.clone(),
         });
     }
     if args.no_event_loop {
@@ -510,6 +520,16 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
     if let Some(max_runtime_seconds) = args.max_runtime_seconds {
         if let Some(policy) = &mut job.event_loop {
             policy.max_runtime_seconds = max_runtime_seconds;
+        }
+    }
+    if let Some(decision_file) = args.event_loop_decision_file {
+        if let Some(policy) = &mut job.event_loop {
+            policy.decision_file = Some(decision_file);
+        }
+    }
+    if args.no_event_loop_decision_file {
+        if let Some(policy) = &mut job.event_loop {
+            policy.decision_file = None;
         }
     }
     store.save(&jobs)?;
