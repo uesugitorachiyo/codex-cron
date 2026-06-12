@@ -28,6 +28,46 @@ fn first_job_id(home: &TempDir) -> String {
         .to_string()
 }
 
+#[cfg(unix)]
+fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
+    let iteration = if include_iteration {
+        r#"echo iteration="$n"; "#
+    } else {
+        ""
+    };
+    format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; {iteration}if [ "$n" -lt {stop_after} ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}'; fi"#,
+        state = state.display()
+    )
+}
+
+#[cfg(windows)]
+fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
+    let path = state.display().to_string().replace('\'', "''");
+    let iteration = if include_iteration {
+        "Write-Output ('iteration=' + $n); "
+    } else {
+        ""
+    };
+    format!(
+        "powershell -NoProfile -Command \"$p='{path}'; $n=0; if (Test-Path $p) {{ $raw=Get-Content -Raw $p; if ($raw.Trim()) {{ $n=[int]$raw.Trim() }} }}; $n=$n+1; Set-Content -NoNewline -Path $p -Value $n; {iteration}$action=if ($n -lt {stop_after}) {{ 'continue' }} else {{ 'stop' }}; $reason=if ($n -lt {stop_after}) {{ 'chain' }} else {{ 'done' }}; [pscustomobject]@{{ schema_version='codex-cron.event-loop-decision.v1'; event_loop=[pscustomobject]@{{ action=$action; reason=$reason }} }} | ConvertTo-Json -Compress\""
+    )
+}
+
+#[cfg(unix)]
+fn write_text_script(path: &std::path::Path, text: &str) -> String {
+    format!(r#"echo {text} > "{}""#, path.display())
+}
+
+#[cfg(windows)]
+fn write_text_script(path: &std::path::Path, text: &str) -> String {
+    let path = path.display().to_string().replace('\'', "''");
+    let text = text.replace('\'', "''");
+    format!(
+        "powershell -NoProfile -Command \"Set-Content -NoNewline -Path '{path}' -Value '{text}'\""
+    )
+}
+
 #[test]
 fn doctor_is_healthy_on_a_fresh_home() {
     let home = TempDir::new().unwrap();
@@ -208,10 +248,7 @@ fn add_event_loop_job_persists_policy() {
 fn run_loop_immediately_chains_until_stop_decision() {
     let home = TempDir::new().unwrap();
     let state = home.path().join("state.txt");
-    let script = format!(
-        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 3 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}'; fi"#,
-        state = state.display()
-    );
+    let script = loop_script(&state, 3, false);
     cc(&home)
         .args([
             "add",
@@ -246,10 +283,7 @@ fn run_loop_immediately_chains_until_stop_decision() {
 fn run_loop_preserves_one_markdown_file_per_iteration() {
     let home = TempDir::new().unwrap();
     let state = home.path().join("output-state.txt");
-    let script = format!(
-        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; echo iteration="$n"; if [ "$n" -lt 5 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
-        state = state.display()
-    );
+    let script = loop_script(&state, 5, true);
     cc(&home)
         .args([
             "add",
@@ -281,10 +315,7 @@ fn run_loop_preserves_one_markdown_file_per_iteration() {
 fn tick_runs_due_event_loop_job_as_chain() {
     let home = TempDir::new().unwrap();
     let state = home.path().join("tick-loop-state.txt");
-    let script = format!(
-        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
-        state = state.display()
-    );
+    let script = loop_script(&state, 2, false);
     cc(&home)
         .args([
             "add",
@@ -324,11 +355,8 @@ fn tick_loop_runs_event_loop_and_ordinary_due_jobs() {
     let home = TempDir::new().unwrap();
     let loop_state = home.path().join("mixed-loop-state.txt");
     let ordinary_state = home.path().join("mixed-ordinary-state.txt");
-    let loop_script = format!(
-        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
-        state = loop_state.display()
-    );
-    let ordinary_script = format!(r#"echo ordinary-ran > "{}""#, ordinary_state.display());
+    let loop_script = loop_script(&loop_state, 2, false);
+    let ordinary_script = write_text_script(&ordinary_state, "ordinary-ran");
 
     cc(&home)
         .args([
@@ -390,10 +418,7 @@ fn tick_loop_runs_event_loop_and_ordinary_due_jobs() {
 fn daemon_event_loop_runs_due_chain() {
     let home = TempDir::new().unwrap();
     let state = home.path().join("daemon-loop-state.txt");
-    let script = format!(
-        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; if [ "$n" -lt 2 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop"}}}}'; fi"#,
-        state = state.display()
-    );
+    let script = loop_script(&state, 2, false);
 
     cc(&home)
         .args([

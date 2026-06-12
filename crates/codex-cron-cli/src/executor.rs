@@ -361,16 +361,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_executor_invokes_binary_with_exec_and_prompt() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let fake = dir.path().join("fake-codex");
-        let mut f = std::fs::File::create(&fake).unwrap();
-        writeln!(f, "#!/bin/sh\necho \"ran: $@\"").unwrap();
-        drop(f);
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let exec = CodexExecutor::new(fake.to_string_lossy().to_string(), dir.path());
+        let exec = CodexExecutor::new("echo", dir.path());
         let out = exec.run(&job("summarize today", None, ExecutorKind::Codex), &ctx());
         assert_eq!(out.status, RunStatus::Success, "md: {}", out.markdown);
         assert!(out.markdown.contains("exec"), "got {}", out.markdown);
@@ -399,16 +391,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ao2_executor_invokes_run_spec() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let fake = dir.path().join("fake-ao2");
-        let mut f = std::fs::File::create(&fake).unwrap();
-        writeln!(f, "#!/bin/sh\necho \"ao2 args: $@\"").unwrap();
-        drop(f);
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let exec = Ao2Executor::new(fake.to_string_lossy().to_string());
+        let exec = Ao2Executor::new("echo");
         let out = exec.run(&job("", Some("plan.yaml"), ExecutorKind::Ao2), &ctx());
         assert_eq!(out.status, RunStatus::Success, "md: {}", out.markdown);
         assert!(
