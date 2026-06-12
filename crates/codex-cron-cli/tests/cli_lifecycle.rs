@@ -85,7 +85,10 @@ fn write_text_script(path: &std::path::Path, text: &str) -> String {
 
 #[cfg(windows)]
 fn write_text_script(path: &std::path::Path, text: &str) -> String {
-    format!(r#"echo {text}>"{}""#, path.display())
+    format!(
+        r#"powershell -NoProfile -Command Set-Content -LiteralPath {} -Value {text} -NoNewline"#,
+        path.display()
+    )
 }
 
 #[test]
