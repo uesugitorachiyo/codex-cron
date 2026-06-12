@@ -11,21 +11,22 @@ use std::path::Path;
 pub const SERVICE_LABEL: &str = "com.harufumi.codex-cron";
 
 /// Run ticks forever, sleeping `interval_secs` between passes.
-pub fn run_loop(home: &Path, interval_secs: u64) -> anyhow::Result<()> {
+pub fn run_loop(home: &Path, interval_secs: u64, event_loop: bool) -> anyhow::Result<()> {
     let interval = std::time::Duration::from_secs(interval_secs.max(1));
     println!(
-        "codex-cron daemon: home={}, interval={}s (ctrl-c to stop)",
+        "codex-cron daemon: home={}, interval={}s, event_loop={} (ctrl-c to stop)",
         home.display(),
-        interval_secs
+        interval_secs,
+        event_loop
     );
     loop {
-        match crate::cli::run_one_tick(home) {
-            Ok(report) => {
-                if !report.fired.is_empty() {
-                    println!("tick: fired {} job(s)", report.fired.len());
-                }
-            }
-            Err(e) => eprintln!("tick error: {e:#}"),
+        let result = if event_loop {
+            crate::cli::run_tick_loop(home)
+        } else {
+            crate::cli::run_one_tick(home).map(|_| ())
+        };
+        if let Err(e) = result {
+            eprintln!("tick error: {e:#}");
         }
         std::thread::sleep(interval);
     }
@@ -124,6 +125,7 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             .status()?;
         anyhow::ensure!(status.success(), "launchctl load failed");
         println!("installed launchd agent: {}", path.display());
+        Ok(())
     }
     #[cfg(target_os = "linux")]
     {
@@ -140,6 +142,7 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             .status()?;
         anyhow::ensure!(status.success(), "systemctl enable failed");
         println!("installed systemd user unit: {}", path.display());
+        Ok(())
     }
     #[cfg(target_os = "windows")]
     {
@@ -149,7 +152,6 @@ pub fn install(home: &Path, interval: u64) -> anyhow::Result<()> {
             windows_schtasks_create(&program, home)
         );
     }
-    Ok(())
 }
 
 /// Remove the OS service for the current platform.
@@ -198,7 +200,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn args() -> Vec<String> {
-        vec!["daemon".to_string(), "--interval".to_string(), "60".to_string()]
+        vec![
+            "daemon".to_string(),
+            "--interval".to_string(),
+            "60".to_string(),
+        ]
     }
 
     #[test]

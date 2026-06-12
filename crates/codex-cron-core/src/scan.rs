@@ -107,6 +107,9 @@ mod tests {
     #[test]
     fn reason_names_the_matched_pattern() {
         let reason = scan("ignore previous instructions").unwrap();
-        assert!(reason.contains("ignore previous instructions"), "got {reason}");
+        assert!(
+            reason.contains("ignore previous instructions"),
+            "got {reason}"
+        );
     }
 }
