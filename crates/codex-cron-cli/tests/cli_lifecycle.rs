@@ -43,26 +43,34 @@ fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool
 
 #[cfg(windows)]
 fn loop_script(state: &std::path::Path, stop_after: u32, include_iteration: bool) -> String {
-    let script_path = state.with_extension("cmd");
+    let script_path = state.with_extension("ps1");
     let iteration = include_iteration
-        .then_some("echo iteration=!n!\r\n")
+        .then_some("Write-Output \"iteration=$n\"\r\n")
         .unwrap_or("");
     let body = format!(
-        r#"@echo off
-setlocal EnableDelayedExpansion
-if not exist "%~1" echo 0>"%~1"
-set /p n=<"%~1"
-set /a n=!n!+1
-echo !n!>"%~1"
-{iteration}if !n! LSS {stop_after} (
-  echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}
-) else (
-  echo {{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}
-)
-"#
+        r##"#param([string]$StatePath)
+$n = 0
+if (Test-Path -LiteralPath $StatePath) {{
+  $raw = Get-Content -LiteralPath $StatePath -Raw
+  if ($raw.Trim()) {{
+    $n = [int]$raw.Trim()
+  }}
+}}
+$n += 1
+Set-Content -LiteralPath $StatePath -Value $n -NoNewline
+{iteration}if ($n -lt {stop_after}) {{
+  Write-Output '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","reason":"chain"}}}}'
+}} else {{
+  Write-Output '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"stop","reason":"done"}}}}'
+}}
+"##
     );
     std::fs::write(&script_path, body).unwrap();
-    format!(r#"call "{}" "{}""#, script_path.display(), state.display())
+    format!(
+        r#"powershell -NoProfile -ExecutionPolicy Bypass -File "{}" "{}""#,
+        script_path.display(),
+        state.display()
+    )
 }
 
 #[cfg(unix)]
