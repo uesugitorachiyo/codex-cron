@@ -120,7 +120,7 @@
     "cargo run -p codex-cron-cli -- doctor"
   ],
   "handoff_notes": [
-    "Use <repo>/docs/superpowers/plans/2026-06-12-codex-cron-event-loop.md as the detailed execution plan.",
+    "Use docs/superpowers/plans/2026-06-12-codex-cron-event-loop.md as the detailed execution plan.",
     "Preserve the existing uncommitted change in docs/superpowers/specs/2026-05-29-codex-cron-design.md.",
     "Prefer TDD task-by-task implementation with frequent commits.",
     "Do not implement AO2 Pulse one-shot in codex-cron; only document the expected integration contract."
