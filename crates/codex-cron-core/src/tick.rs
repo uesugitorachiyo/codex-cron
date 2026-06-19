@@ -58,6 +58,7 @@ pub trait InjectionScanner: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunContext {
     pub now: DateTime<Utc>,
+    pub env: Vec<(String, String)>,
 }
 
 /// The outcome class of a single run.
@@ -104,6 +105,7 @@ pub struct TickConfig {
     /// Maximum jobs run concurrently (`1` = serial). `0` is treated as `1`.
     pub max_parallel: usize,
     pub target_job_ids: Option<HashSet<String>>,
+    pub env: Vec<(String, String)>,
 }
 
 impl Default for TickConfig {
@@ -111,6 +113,7 @@ impl Default for TickConfig {
         TickConfig {
             max_parallel: 1,
             target_job_ids: None,
+            env: Vec::new(),
         }
     }
 }
@@ -218,7 +221,14 @@ pub fn tick(
     store.save(&jobs)?; // durable before any side effect — the at-most-once line.
 
     // Run (bounded concurrency). Refusal/missing-executor are encoded as output.
-    let results = run_due(&snapshots, executors, scanner, now, cfg.max_parallel);
+    let results = run_due(
+        &snapshots,
+        executors,
+        scanner,
+        now,
+        &cfg.env,
+        cfg.max_parallel,
+    );
     let outputs: HashMap<usize, RunOutput> = results.into_iter().collect();
 
     // Mark outcomes and decide deletions.
@@ -288,6 +298,7 @@ fn run_due(
     executors: &[&dyn Executor],
     scanner: &dyn InjectionScanner,
     now: DateTime<Utc>,
+    env: &[(String, String)],
     max_parallel: usize,
 ) -> Vec<(usize, RunOutput)> {
     let cap = max_parallel.max(1);
@@ -297,7 +308,7 @@ fn run_due(
             let handles: Vec<_> = chunk
                 .iter()
                 .map(|(idx, job)| {
-                    scope.spawn(move || (*idx, run_one(job, executors, scanner, now)))
+                    scope.spawn(move || (*idx, run_one(job, executors, scanner, now, env)))
                 })
                 .collect();
             handles
@@ -317,6 +328,7 @@ fn run_one(
     executors: &[&dyn Executor],
     scanner: &dyn InjectionScanner,
     now: DateTime<Utc>,
+    env: &[(String, String)],
 ) -> RunOutput {
     if job.executor == crate::job::ExecutorKind::Codex {
         if let Some(reason) = scanner.scan(&job.prompt) {
@@ -329,7 +341,10 @@ fn run_one(
         }
     }
 
-    let ctx = RunContext { now };
+    let ctx = RunContext {
+        now,
+        env: env.to_vec(),
+    };
     match executors.iter().find(|e| e.kind() == job.executor) {
         Some(e) => e.run(job, &ctx),
         None => RunOutput {
@@ -550,6 +565,7 @@ mod tests {
         TickConfig {
             max_parallel,
             target_job_ids: None,
+            env: Vec::new(),
         }
     }
 
@@ -954,6 +970,7 @@ mod tests {
         let cfg = TickConfig {
             max_parallel: 1,
             target_job_ids: Some(["a".to_string()].into_iter().collect()),
+            env: Vec::new(),
         };
 
         let report = tick(&FixedClock(now), &store, &[&exec], &[], &NoScan, &cfg).unwrap();

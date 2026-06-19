@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use codex_cron_core::{parse_event_loop_decision, EventLoopAction, EventLoopPolicy, JobStore};
 use serde_json::json;
 
-use crate::cli::run_target_tick;
 use crate::store::{atomic_write, FileJobStore};
 
 pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>) -> Result<()> {
@@ -23,6 +22,11 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
                     .as_ref()
                     .and_then(|stored| stored.decision_file.clone());
             }
+            if policy.goal_id.is_none() {
+                policy.goal_id = stored_policy
+                    .as_ref()
+                    .and_then(|stored| stored.goal_id.clone());
+            }
             policy
         }
         None => stored_policy.context(
@@ -35,9 +39,11 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
         .map(|path| resolve_decision_file(home, job.workdir.as_deref(), path));
 
     let started = Instant::now();
+    let session_id = new_session_id(id);
     let mut iterations = 0u32;
     let mut decisions = Vec::new();
     let mut status = "max_chain_reached".to_string();
+    let mut memory_session_id: Option<String> = None;
 
     while iterations < policy.max_chain_runs
         && started.elapsed() < Duration::from_secs(policy.max_runtime_seconds)
@@ -55,7 +61,18 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
         }
 
         iterations += 1;
-        let report = run_target_tick(home, id)?;
+        let report = crate::cli::run_target_tick_with_env(
+            home,
+            id,
+            iteration_env(
+                home,
+                id,
+                &session_id,
+                iterations,
+                &policy,
+                decision_file.as_ref(),
+            ),
+        )?;
         let fired = report
             .fired
             .iter()
@@ -74,7 +91,8 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
                 "run_status": fired.status.as_str(),
                 "run_summary": &fired.output.summary,
                 "run_error": &fired.output.error,
-                "run_markdown_excerpt": excerpt(&fired.output.markdown, 2000)
+                "run_markdown_excerpt": excerpt(&fired.output.markdown, 2000),
+                "goal_id": policy.goal_id.clone()
             }));
             break;
         }
@@ -94,11 +112,36 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
                 }),
             ),
         };
+        if decision.memory_session_id.is_some() {
+            memory_session_id = decision.memory_session_id.clone();
+        }
+        if decision.action == EventLoopAction::Continue {
+            if let Some(expected) = policy.goal_id.as_deref() {
+                if decision.goal_id.as_deref() != Some(expected) {
+                    let got = decision.goal_id.as_deref().unwrap_or("<missing>");
+                    status = "goal_drift".to_string();
+                    decisions.push(json!({
+                        "iteration": iterations,
+                        "action": "goal_drift",
+                        "reason": format!("event-loop goal drift: expected {expected}, got {got}"),
+                        "next_task_id": decision.next_task_id,
+                        "goal_id": decision.goal_id,
+                        "expected_goal_id": expected,
+                        "memory_session_id": decision.memory_session_id,
+                        "decision_source": decision_source["decision_source"],
+                        "decision_file": decision_source.get("decision_file").cloned()
+                    }));
+                    break;
+                }
+            }
+        }
         decisions.push(json!({
             "iteration": iterations,
             "action": format!("{:?}", decision.action).to_lowercase(),
             "reason": decision.reason,
             "next_task_id": decision.next_task_id,
+            "goal_id": decision.goal_id,
+            "memory_session_id": decision.memory_session_id,
             "decision_source": decision_source["decision_source"],
             "decision_file": decision_source.get("decision_file").cloned()
         }));
@@ -127,6 +170,9 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
     let payload = json!({
         "schema_version": "codex-cron.event-loop-run.v1",
         "job_id": id,
+        "event_loop_session_id": session_id,
+        "goal_id": policy.goal_id.clone(),
+        "memory_session_id": memory_session_id,
         "status": status,
         "iterations": iterations,
         "max_chain_runs": policy.max_chain_runs,
@@ -142,6 +188,43 @@ pub fn run_loop(home: &Path, id: &str, override_policy: Option<EventLoopPolicy>)
     );
     println!("summary={}", path.display());
     Ok(())
+}
+
+fn new_session_id(id: &str) -> String {
+    format!("{}-{}", id, chrono::Utc::now().timestamp_millis())
+}
+
+fn iteration_env(
+    home: &Path,
+    id: &str,
+    session_id: &str,
+    iteration: u32,
+    policy: &EventLoopPolicy,
+    decision_file: Option<&PathBuf>,
+) -> Vec<(String, String)> {
+    let mut env = vec![
+        ("CODEX_CRON_HOME".to_string(), home.display().to_string()),
+        ("CODEX_CRON_JOB_ID".to_string(), id.to_string()),
+        (
+            "CODEX_CRON_EVENT_LOOP_SESSION_ID".to_string(),
+            session_id.to_string(),
+        ),
+        (
+            "CODEX_CRON_EVENT_LOOP_ITERATION".to_string(),
+            iteration.to_string(),
+        ),
+        (
+            "CODEX_CRON_EVENT_LOOP_GOAL_ID".to_string(),
+            policy.goal_id.clone().unwrap_or_default(),
+        ),
+    ];
+    if let Some(path) = decision_file {
+        env.push((
+            "CODEX_CRON_EVENT_LOOP_DECISION_FILE".to_string(),
+            path.display().to_string(),
+        ));
+    }
+    env
 }
 
 fn excerpt(text: &str, max_chars: usize) -> String {
@@ -176,6 +259,8 @@ fn parse_event_loop_decision_file(path: &Path) -> codex_cron_core::EventLoopDeci
                 error
             )),
             next_task_id: None,
+            goal_id: None,
+            memory_session_id: None,
         },
     }
 }

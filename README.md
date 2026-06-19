@@ -156,6 +156,11 @@ when its output emits:
 The loop stops on `stop`, `backoff`, `fail`, command failure, `max_chain_runs`,
 or `max_runtime_seconds`.
 
+For long-running overnight/weekend chains, add `--event-loop-goal-id <id>` to
+pin a loop to one durable goal. A `continue` decision that emits a different
+`goal_id` stops the chain with `goal_drift` instead of letting the work wander
+into a different objective.
+
 For tools that write durable artifacts, configure
 `--event-loop-decision-file <path>` instead of relying on stdout. Relative
 decision-file paths resolve against the job `--workdir`; this lets AO2 Pulse
@@ -170,6 +175,7 @@ codex-cron add "every 30m" "AO2 Pulse production readiness" \
   --workdir /path/to/ao2 \
   --script "npm run pulse:generate-next" \
   --event-loop \
+  --event-loop-goal-id ao2-production-readiness \
   --event-loop-decision-file target/pulse-next-recommended-tasks/codex-cron-event-loop-decision.json \
   --max-chain-runs 3 \
   --max-runtime-seconds 2700
@@ -182,6 +188,23 @@ Evidence is written under:
 
 ```text
 ~/.codex-cron/event-loop/<job-id>/latest.json
+```
+
+Each event-loop iteration receives these environment variables:
+
+| Variable | Meaning |
+|----------|---------|
+| `CODEX_CRON_HOME` | Active codex-cron home directory |
+| `CODEX_CRON_JOB_ID` | Current job id |
+| `CODEX_CRON_EVENT_LOOP_SESSION_ID` | Stable id for the current zero-wait chain |
+| `CODEX_CRON_EVENT_LOOP_ITERATION` | 1-based iteration number inside the chain |
+| `CODEX_CRON_EVENT_LOOP_GOAL_ID` | Configured goal id, or empty when unset |
+| `CODEX_CRON_EVENT_LOOP_DECISION_FILE` | Resolved decision-file path when configured |
+
+Decision JSON may include `goal_id` and `memory_session_id`:
+
+```json
+{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{"action":"continue","goal_id":"ao2-production-readiness","memory_session_id":"mem-123","next_task_id":"next-check"}}
 ```
 
 For a detailed integration guide (e.g. with AO2 Pulse), see [docs/examples/ao2-pulse-event-loop.md](docs/examples/ao2-pulse-event-loop.md).

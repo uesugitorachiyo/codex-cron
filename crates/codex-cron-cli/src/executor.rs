@@ -24,13 +24,13 @@ impl Executor for ShellExecutor {
         ExecutorKind::Shell
     }
 
-    fn run(&self, job: &Job, _ctx: &RunContext) -> RunOutput {
+    fn run(&self, job: &Job, ctx: &RunContext) -> RunOutput {
         let script = match job.script.as_deref() {
             Some(s) if !s.trim().is_empty() => s,
             _ => return failed("shell job has no script"),
         };
         let (program, args) = shell_invocation(script);
-        match spawn(program, &args, job.workdir.as_deref()) {
+        match spawn(program, &args, job.workdir.as_deref(), &ctx.env) {
             Err(e) => spawn_failed("shell", program, e),
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -74,7 +74,7 @@ impl Executor for CodexExecutor {
         ExecutorKind::Codex
     }
 
-    fn run(&self, job: &Job, _ctx: &RunContext) -> RunOutput {
+    fn run(&self, job: &Job, ctx: &RunContext) -> RunOutput {
         let prompt = assemble_prompt(&self.home, job);
         // Defense in depth: re-scan the *assembled* prompt (which may include
         // injected context) even though the tick already screened job.prompt.
@@ -87,7 +87,7 @@ impl Executor for CodexExecutor {
             args.push(model.clone());
         }
         args.push(prompt);
-        match spawn(&self.bin, &args, job.workdir.as_deref()) {
+        match spawn(&self.bin, &args, job.workdir.as_deref(), &ctx.env) {
             Err(e) => spawn_failed("codex", &self.bin, e),
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -122,13 +122,13 @@ impl Executor for Ao2Executor {
         ExecutorKind::Ao2
     }
 
-    fn run(&self, job: &Job, _ctx: &RunContext) -> RunOutput {
+    fn run(&self, job: &Job, ctx: &RunContext) -> RunOutput {
         let spec = match job.script.as_deref() {
             Some(s) if !s.trim().is_empty() => s,
             _ => return failed("ao2 job has no --spec (set it via --script)"),
         };
         let args = vec!["run".to_string(), "--spec".to_string(), spec.to_string()];
-        match spawn(&self.bin, &args, job.workdir.as_deref()) {
+        match spawn(&self.bin, &args, job.workdir.as_deref(), &ctx.env) {
             Err(e) => spawn_failed("ao2", &self.bin, e),
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -161,11 +161,15 @@ fn spawn(
     program: &str,
     args: &[String],
     cwd: Option<&Path>,
+    env: &[(String, String)],
 ) -> std::io::Result<std::process::Output> {
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
+    }
+    for (key, value) in env {
+        cmd.env(key, value);
     }
     cmd.output()
 }
@@ -314,6 +318,7 @@ mod tests {
     fn ctx() -> RunContext {
         RunContext {
             now: chrono::Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 0).unwrap(),
+            env: Vec::new(),
         }
     }
 

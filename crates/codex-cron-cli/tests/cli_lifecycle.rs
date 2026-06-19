@@ -94,6 +94,50 @@ fn write_text_script(path: &std::path::Path, text: &str) -> String {
 }
 
 #[cfg(unix)]
+fn goal_env_script(env_file: &std::path::Path, state: &std::path::Path) -> String {
+    format!(
+        r#"n=$(cat "{state}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "{state}"; printf '%s\n%s\n%s\n%s\n' "$CODEX_CRON_EVENT_LOOP_SESSION_ID" "$CODEX_CRON_EVENT_LOOP_GOAL_ID" "$CODEX_CRON_EVENT_LOOP_ITERATION" "$CODEX_CRON_JOB_ID" >> "{env_file}"; if [ "$n" -eq 1 ]; then echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","goal_id":"goal-alpha","memory_session_id":"mem-alpha","next_task_id":"task-2"}}}}'; else echo '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","goal_id":"goal-beta","next_task_id":"task-3"}}}}'; fi"#,
+        env_file = env_file.display(),
+        state = state.display()
+    )
+}
+
+#[cfg(windows)]
+fn goal_env_script(env_file: &std::path::Path, state: &std::path::Path) -> String {
+    let script_path = state.with_extension("ps1");
+    let body = format!(
+        r##"param([string]$StatePath)
+$EnvFile = "{env_file}"
+$n = 0
+if (Test-Path -LiteralPath $StatePath) {{
+  $raw = Get-Content -LiteralPath $StatePath -Raw
+  if ($raw.Trim()) {{
+    $n = [int]$raw.Trim()
+  }}
+}}
+$n += 1
+Set-Content -LiteralPath $StatePath -Value $n -NoNewline
+Add-Content -LiteralPath $EnvFile -Value $env:CODEX_CRON_EVENT_LOOP_SESSION_ID
+Add-Content -LiteralPath $EnvFile -Value $env:CODEX_CRON_EVENT_LOOP_GOAL_ID
+Add-Content -LiteralPath $EnvFile -Value $env:CODEX_CRON_EVENT_LOOP_ITERATION
+Add-Content -LiteralPath $EnvFile -Value $env:CODEX_CRON_JOB_ID
+if ($n -eq 1) {{
+  Write-Output '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","goal_id":"goal-alpha","memory_session_id":"mem-alpha","next_task_id":"task-2"}}}}'
+}} else {{
+  Write-Output '{{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{{"action":"continue","goal_id":"goal-beta","next_task_id":"task-3"}}}}'
+}}
+"##,
+        env_file = env_file.display()
+    );
+    std::fs::write(&script_path, body).unwrap();
+    format!(
+        r#"powershell -NoProfile -ExecutionPolicy Bypass -File {} {}"#,
+        script_path.display(),
+        state.display()
+    )
+}
+
+#[cfg(unix)]
 fn ao2_decision_file_script(
     state: &std::path::Path,
     decision_file: &str,
@@ -317,6 +361,8 @@ fn add_event_loop_job_persists_policy() {
             "4",
             "--max-runtime-seconds",
             "120",
+            "--event-loop-goal-id",
+            "goal-alpha",
         ])
         .assert()
         .success();
@@ -325,6 +371,7 @@ fn add_event_loop_job_persists_policy() {
     let jobs: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(jobs[0]["event_loop"]["max_chain_runs"], 4);
     assert_eq!(jobs[0]["event_loop"]["max_runtime_seconds"], 120);
+    assert_eq!(jobs[0]["event_loop"]["goal_id"], "goal-alpha");
 }
 
 #[test]
@@ -399,6 +446,62 @@ fn run_loop_reads_ao2_pulse_decision_file_without_stdout_json() {
         Some(home.path().join(decision_file).to_string_lossy().as_ref())
     );
     assert_eq!(summary["decisions"][1]["action"], "backoff");
+}
+
+#[test]
+fn run_loop_exports_identity_env_and_stops_on_goal_drift() {
+    let home = TempDir::new().unwrap();
+    let state = home.path().join("goal-state.txt");
+    let env_file = home.path().join("goal-env.txt");
+    let script = goal_env_script(&env_file, &state);
+    cc(&home)
+        .args([
+            "add",
+            "every 5m",
+            "goal guarded loop",
+            "--executor",
+            "shell",
+            "--script",
+            &script,
+            "--event-loop",
+            "--event-loop-goal-id",
+            "goal-alpha",
+            "--max-chain-runs",
+            "4",
+        ])
+        .assert()
+        .success();
+    let id = first_job_id(&home);
+
+    cc(&home).args(["run-loop", &id]).assert().success();
+
+    let summary = event_loop_summary(&home, &id);
+    assert_eq!(summary["status"], "goal_drift", "summary={summary:#}");
+    assert_eq!(summary["iterations"], 2, "summary={summary:#}");
+    assert_eq!(summary["goal_id"], "goal-alpha");
+    assert_eq!(
+        summary["decisions"][0]["memory_session_id"], "mem-alpha",
+        "summary={summary:#}"
+    );
+    assert_eq!(
+        summary["decisions"][1]["reason"],
+        "event-loop goal drift: expected goal-alpha, got goal-beta",
+        "summary={summary:#}"
+    );
+
+    let env_lines: Vec<String> = std::fs::read_to_string(env_file)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(env_lines.len(), 8, "env_lines={env_lines:#?}");
+    assert_eq!(env_lines[0], env_lines[4]);
+    assert!(!env_lines[0].is_empty(), "env_lines={env_lines:#?}");
+    assert_eq!(env_lines[1], "goal-alpha");
+    assert_eq!(env_lines[2], "1");
+    assert_eq!(env_lines[3], id);
+    assert_eq!(env_lines[5], "goal-alpha");
+    assert_eq!(env_lines[6], "2");
 }
 
 #[test]

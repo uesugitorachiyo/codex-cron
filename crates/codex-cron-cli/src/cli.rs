@@ -127,6 +127,9 @@ pub struct AddArgs {
     /// Read event-loop decisions from this JSON file after each run.
     #[arg(long = "event-loop-decision-file")]
     pub event_loop_decision_file: Option<PathBuf>,
+    /// Expected event-loop goal id; continue decisions with another goal stop the chain.
+    #[arg(long = "event-loop-goal-id")]
+    pub event_loop_goal_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -160,6 +163,10 @@ pub struct EditArgs {
     pub event_loop_decision_file: Option<PathBuf>,
     #[arg(long = "no-event-loop-decision-file")]
     pub no_event_loop_decision_file: bool,
+    #[arg(long = "event-loop-goal-id")]
+    pub event_loop_goal_id: Option<String>,
+    #[arg(long = "no-event-loop-goal-id")]
+    pub no_event_loop_goal_id: bool,
 }
 
 #[derive(Debug, Args)]
@@ -220,6 +227,7 @@ pub fn run(cli: Cli) -> Result<()> {
                     max_runtime_seconds: runtime
                         .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
                     decision_file: None,
+                    goal_id: None,
                 }),
             };
             crate::event_loop::run_loop(&home, &id, override_policy)
@@ -263,6 +271,7 @@ pub fn run_one_tick(home: &Path) -> Result<TickReport> {
     let tick_cfg = TickConfig {
         max_parallel: cfg.effective_max_parallel(),
         target_job_ids: None,
+        env: Vec::new(),
     };
 
     match try_acquire_tick_lock(home).context("acquiring tick lock")? {
@@ -278,6 +287,14 @@ pub fn run_one_tick(home: &Path) -> Result<TickReport> {
 }
 
 pub fn run_target_tick(home: &Path, id: &str) -> Result<TickReport> {
+    run_target_tick_with_env(home, id, Vec::new())
+}
+
+pub fn run_target_tick_with_env(
+    home: &Path,
+    id: &str,
+    env: Vec<(String, String)>,
+) -> Result<TickReport> {
     let cfg = Config::load(home)?;
     let store = FileJobStore::new(home);
     let clock = SystemClock;
@@ -295,6 +312,7 @@ pub fn run_target_tick(home: &Path, id: &str) -> Result<TickReport> {
     let tick_cfg = TickConfig {
         max_parallel: 1,
         target_job_ids: Some([id.to_string()].into_iter().collect()),
+        env,
     };
 
     match try_acquire_tick_lock(home).context("acquiring tick lock")? {
@@ -358,6 +376,7 @@ fn cmd_add(home: &Path, args: AddArgs) -> Result<()> {
         max_chain_runs: args.max_chain_runs,
         max_runtime_seconds: args.max_runtime_seconds,
         decision_file: args.event_loop_decision_file,
+        goal_id: args.event_loop_goal_id,
     });
 
     let job = Job::new(
@@ -507,6 +526,7 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
                 .max_runtime_seconds
                 .unwrap_or_else(codex_cron_core::event_loop::default_max_runtime_seconds),
             decision_file: args.event_loop_decision_file.clone(),
+            goal_id: args.event_loop_goal_id.clone(),
         });
     }
     if args.no_event_loop {
@@ -530,6 +550,16 @@ fn cmd_edit(home: &Path, args: EditArgs) -> Result<()> {
     if args.no_event_loop_decision_file {
         if let Some(policy) = &mut job.event_loop {
             policy.decision_file = None;
+        }
+    }
+    if let Some(goal_id) = args.event_loop_goal_id {
+        if let Some(policy) = &mut job.event_loop {
+            policy.goal_id = Some(goal_id);
+        }
+    }
+    if args.no_event_loop_goal_id {
+        if let Some(policy) = &mut job.event_loop {
+            policy.goal_id = None;
         }
     }
     store.save(&jobs)?;

@@ -20,6 +20,10 @@ pub struct EventLoopDecision {
     pub reason: Option<String>,
     #[serde(default)]
     pub next_task_id: Option<String>,
+    #[serde(default)]
+    pub goal_id: Option<String>,
+    #[serde(default)]
+    pub memory_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +34,8 @@ pub struct EventLoopPolicy {
     pub max_runtime_seconds: u64,
     #[serde(default)]
     pub decision_file: Option<PathBuf>,
+    #[serde(default)]
+    pub goal_id: Option<String>,
 }
 
 pub fn default_max_chain_runs() -> u32 {
@@ -59,6 +65,8 @@ pub fn parse_event_loop_decision(text: &str) -> EventLoopDecision {
                     action: EventLoopAction::Fail,
                     reason: Some("malformed event-loop decision json".to_string()),
                     next_task_id: None,
+                    goal_id: None,
+                    memory_session_id: None,
                 };
             }
             continue;
@@ -72,6 +80,8 @@ pub fn parse_event_loop_decision(text: &str) -> EventLoopDecision {
         action: EventLoopAction::Stop,
         reason: Some("no event-loop decision emitted".to_string()),
         next_task_id: None,
+        goal_id: None,
+        memory_session_id: None,
     }
 }
 
@@ -88,6 +98,8 @@ fn decision_from_value(value: serde_json::Value) -> Option<EventLoopDecision> {
             action: EventLoopAction::Fail,
             reason: Some("event-loop decision missing event_loop object".to_string()),
             next_task_id: None,
+            goal_id: None,
+            memory_session_id: None,
         });
     };
     Some(
@@ -95,6 +107,8 @@ fn decision_from_value(value: serde_json::Value) -> Option<EventLoopDecision> {
             action: EventLoopAction::Fail,
             reason: Some("event-loop decision has invalid event_loop object".to_string()),
             next_task_id: None,
+            goal_id: None,
+            memory_session_id: None,
         }),
     )
 }
@@ -113,6 +127,18 @@ tail"#;
 
         assert_eq!(decision.action, EventLoopAction::Continue);
         assert_eq!(decision.reason.as_deref(), Some("more work"));
+        assert_eq!(decision.next_task_id.as_deref(), Some("ao2-next"));
+    }
+
+    #[test]
+    fn parses_goal_and_memory_session_fields() {
+        let text = r#"{"schema_version":"codex-cron.event-loop-decision.v1","event_loop":{"action":"continue","goal_id":"ao2-weekend-hardening","memory_session_id":"mem-123","next_task_id":"ao2-next"}}"#;
+
+        let decision = parse_event_loop_decision(text);
+
+        assert_eq!(decision.action, EventLoopAction::Continue);
+        assert_eq!(decision.goal_id.as_deref(), Some("ao2-weekend-hardening"));
+        assert_eq!(decision.memory_session_id.as_deref(), Some("mem-123"));
         assert_eq!(decision.next_task_id.as_deref(), Some("ao2-next"));
     }
 

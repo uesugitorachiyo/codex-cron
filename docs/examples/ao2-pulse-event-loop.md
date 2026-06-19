@@ -21,6 +21,12 @@ If no decision file is configured, it scans the output (stdout/stderr) for a
 JSON line conforming to the schema version
 `codex-cron.event-loop-decision.v1`.
 
+For long chains, configure `--event-loop-goal-id`. `codex-cron` exports that
+value to every iteration as `CODEX_CRON_EVENT_LOOP_GOAL_ID` and refuses to
+continue if a `continue` decision emits a different `goal_id`. This is a simple
+drift guard: the planner owns the meaning of the goal, while `codex-cron`
+enforces that the chain does not silently switch goals.
+
 For AO2 Pulse, use the file handoff:
 
 ```text
@@ -43,6 +49,10 @@ The JSON line must be formatted exactly as follows:
     - `"fail"`: Stop execution and report a failure.
   - `reason` (string, optional): A description or reasoning for the decision.
   - `next_task_id` (string, optional): Identifier for the next task or phase in the chain.
+  - `goal_id` (string, optional): The goal this decision belongs to. Required
+    for guarded `continue` decisions when the job has `--event-loop-goal-id`.
+  - `memory_session_id` (string, optional): External memory/session identifier
+    to copy into `latest.json` evidence.
 
 ---
 
@@ -64,9 +74,21 @@ codex-cron add "every 30m" "AO2 Pulse Integration" \
   --workdir /path/to/ao2 \
   --script "npm run pulse:generate-next" \
   --event-loop \
+  --event-loop-goal-id ao2-production-readiness \
   --event-loop-decision-file target/pulse-next-recommended-tasks/codex-cron-event-loop-decision.json \
   --max-chain-runs 5 \
   --max-runtime-seconds 1800
+```
+
+During each iteration, the command receives:
+
+```text
+CODEX_CRON_HOME
+CODEX_CRON_JOB_ID
+CODEX_CRON_EVENT_LOOP_SESSION_ID
+CODEX_CRON_EVENT_LOOP_ITERATION
+CODEX_CRON_EVENT_LOOP_GOAL_ID
+CODEX_CRON_EVENT_LOOP_DECISION_FILE
 ```
 
 ### 3. Execution
@@ -103,6 +125,9 @@ Example `latest.json` output:
 {
   "schema_version": "codex-cron.event-loop-run.v1",
   "job_id": "r8m3k2v7y9p0",
+  "event_loop_session_id": "r8m3k2v7y9p0-1781729000000",
+  "goal_id": "ao2-production-readiness",
+  "memory_session_id": "mem-123",
   "status": "stopped",
   "iterations": 3,
   "max_chain_runs": 5,
@@ -112,7 +137,9 @@ Example `latest.json` output:
       "iteration": 1,
       "action": "continue",
       "reason": "Proceeding to step 2",
-      "next_task_id": "step-2"
+      "next_task_id": "step-2",
+      "goal_id": "ao2-production-readiness",
+      "memory_session_id": "mem-123"
     },
     {
       "iteration": 2,
