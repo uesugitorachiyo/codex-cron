@@ -1,0 +1,128 @@
+{
+  "schema_version": "codex-cron.sdd-plan.v1",
+  "plan_id": "codex-cron-event-loop-20260612",
+  "generated_at_utc": "2026-06-12T00:00:00Z",
+  "title": "codex-cron bounded event-loop jobs for AO2 Pulse-style hardening",
+  "target": {
+    "repo_path": "<repo>",
+    "handoff_repo_path": "<handoff-repo>",
+    "recommended_branch": "codex/event-loop-jobs"
+  },
+  "goal": "Extend codex-cron with bounded zero-wait event-loop execution so a job can immediately continue based on a machine-readable decision emitted by its own output, while codex-cron remains scheduler/supervisor and AO2 Pulse remains planner/evidence protocol.",
+  "non_goals": [
+    "Do not complete or replace the AO2 Pulse daemon.",
+    "Do not implement AO2-specific task selection inside codex-cron.",
+    "Do not remove existing interval, cron, once, tick, or daemon behavior.",
+    "Do not depend on real AO2 or Codex binaries in CI tests."
+  ],
+  "architecture": {
+    "decision_schema": "codex-cron.event-loop-decision.v1",
+    "run_schema": "codex-cron.event-loop-run.v1",
+    "core_responsibility": "Persist event-loop policy and parse event-loop decisions as pure logic.",
+    "cli_responsibility": "Run a target job repeatedly with no sleep while the decision action is continue, bounded by max_chain_runs and max_runtime_seconds.",
+    "safety": [
+      "Default to stop when no decision is emitted.",
+      "Stop on command failure, refused run, malformed decision, max chain, or max runtime.",
+      "Use the existing cross-process tick lock.",
+      "Use targeted job ticks so loop iterations do not fire unrelated due jobs."
+    ]
+  },
+  "tasks": [
+    {
+      "id": "core-event-loop-decision",
+      "files": [
+        "crates/codex-cron-core/src/event_loop.rs",
+        "crates/codex-cron-core/src/lib.rs",
+        "crates/codex-cron-core/src/job.rs"
+      ],
+      "acceptance": [
+        "EventLoopPolicy is persisted on Job.",
+        "parse_event_loop_decision parses continue, stop, backoff, and fail.",
+        "Missing decision defaults to stop.",
+        "Malformed schema-matching decision defaults to fail."
+      ],
+      "verification": "cargo test -p codex-cron-core event_loop -- --nocapture"
+    },
+    {
+      "id": "targeted-tick",
+      "files": [
+        "crates/codex-cron-core/src/tick.rs",
+        "crates/codex-cron-cli/src/cli.rs"
+      ],
+      "acceptance": [
+        "TickConfig supports an optional target_job_ids filter.",
+        "cmd_run uses targeted tick so running one job cannot trigger unrelated due jobs.",
+        "Core test proves only the selected due job fires."
+      ],
+      "verification": "cargo test -p codex-cron-core tick_with_target_job_ids_only_fires_matching_due_job -- --nocapture"
+    },
+    {
+      "id": "cli-policy",
+      "files": [
+        "crates/codex-cron-cli/src/cli.rs",
+        "crates/codex-cron-cli/tests/cli_lifecycle.rs"
+      ],
+      "acceptance": [
+        "codex-cron add accepts --event-loop, --max-chain-runs, and --max-runtime-seconds.",
+        "codex-cron edit can enable, disable, and update event-loop policy.",
+        "list --json shows persisted event_loop policy."
+      ],
+      "verification": "cargo test -p codex-cron-cli add_event_loop_job_persists_policy -- --nocapture"
+    },
+    {
+      "id": "run-loop-command",
+      "files": [
+        "crates/codex-cron-cli/src/event_loop.rs",
+        "crates/codex-cron-cli/src/lib.rs",
+        "crates/codex-cron-cli/src/cli.rs",
+        "crates/codex-cron-cli/src/paths.rs",
+        "crates/codex-cron-cli/tests/cli_lifecycle.rs"
+      ],
+      "acceptance": [
+        "codex-cron run-loop <id> immediately chains while action=continue.",
+        "run-loop stops on action=stop.",
+        "run-loop writes ~/.codex-cron/event-loop/<id>/latest.json.",
+        "run-loop prints status and iteration count."
+      ],
+      "verification": "cargo test -p codex-cron-cli run_loop_immediately_chains_until_stop_decision -- --nocapture"
+    },
+    {
+      "id": "tick-loop-and-daemon",
+      "files": [
+        "crates/codex-cron-cli/src/cli.rs",
+        "crates/codex-cron-cli/src/daemon.rs",
+        "crates/codex-cron-cli/tests/cli_lifecycle.rs"
+      ],
+      "acceptance": [
+        "codex-cron tick-loop expands due event-loop jobs into bounded zero-wait chains.",
+        "codex-cron daemon --event-loop uses tick-loop behavior between daemon intervals.",
+        "Existing codex-cron tick and daemon behavior remains unchanged when event-loop mode is not selected."
+      ],
+      "verification": "cargo test --workspace -- --nocapture"
+    },
+    {
+      "id": "docs-and-ao2-example",
+      "files": [
+        "README.md",
+        "docs/examples/ao2-pulse-event-loop.md"
+      ],
+      "acceptance": [
+        "README documents event-loop jobs, decision schema, bounds, evidence path, tick-loop, and daemon --event-loop.",
+        "AO2 example shows codex-cron as scheduler/event-loop engine and AO2 Pulse as planner/evidence protocol."
+      ],
+      "verification": "cargo test --workspace -- --nocapture && cargo clippy --workspace --all-targets -- -D warnings"
+    }
+  ],
+  "final_verification": [
+    "cargo fmt --all -- --check",
+    "cargo test --workspace -- --nocapture",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo run -p codex-cron-cli -- doctor"
+  ],
+  "handoff_notes": [
+    "Use <repo>/docs/superpowers/plans/2026-06-12-codex-cron-event-loop.md as the detailed execution plan.",
+    "Preserve the existing uncommitted change in docs/superpowers/specs/2026-05-29-codex-cron-design.md.",
+    "Prefer TDD task-by-task implementation with frequent commits.",
+    "Do not implement AO2 Pulse one-shot in codex-cron; only document the expected integration contract."
+  ]
+}

@@ -2,7 +2,7 @@
 
 Date: 2026-05-29
 Status: Approved (brainstorming gate passed)
-Author: Claude (Opus 4.8) for harufumi
+Author: Claude (Opus 4.8)
 
 ## 1. Summary
 
