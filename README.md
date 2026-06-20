@@ -260,4 +260,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## License
 
-See `Cargo.toml` for the workspace license.
+`codex-cron` is licensed under `Apache-2.0`. See `LICENSE`.
