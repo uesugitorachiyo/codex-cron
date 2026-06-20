@@ -8,6 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  license-policy:
+    name: License policy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check license policy
+        run: scripts/check-license-policy.sh
+
   rust:
     name: ${{ matrix.os }} / rust-event-loop-smoke
     runs-on: ${{ matrix.os }}
